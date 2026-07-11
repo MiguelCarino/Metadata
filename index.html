@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/webp" href="logo.webp">
+    <title>Metadata Editor — Carino Systems</title>
+
+    <!-- Format parsers (loaded lazily-tolerant: every use is typeof-guarded, so
+         the core detector + generic extractor still work if a CDN is blocked). -->
+    <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsmediatags@3.9.5/dist/jsmediatags.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/browser-id3-writer@4.4.0/dist/browser-id3-writer.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js" defer></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Red+Hat+Display:wght@700;900&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --accent: #eab308;
+            --accent-faint: rgba(234,179,8,0.06);
+            --accent-glow: rgba(234,179,8,0.15);
+            --primary-hover: #fbbf24;
+            --bg-body: #050505;
+            --bg-surface: #0b0b0b;
+            --bg-elev: #0d0d0d;
+            --bg-card: #0f0f0f;
+            --text-main: #f5f5f5;
+            --text-muted: #8a8a8a;
+            --text-dim: #666;
+            --border: #262626;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #38bdf8;
+            --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            --display: 'Red Hat Display', var(--sans);
+        }
+        * { box-sizing: border-box; }
+        body { font-family: var(--sans); margin: 0; background: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; }
+
+        /* actions relocated into the shared Carino navbar */
+        .nav-actions { display: flex; gap: 8px; align-items: center; }
+        .open-btn { background: var(--accent); color: #050505; border: none; padding: 7px 14px; border-radius: 6px; font-family: var(--mono); font-weight: 700; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: 0.15s; }
+        .open-btn:hover { background: var(--primary-hover); box-shadow: 0 4px 14px var(--accent-glow); }
+
+        .main-container { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+        .sidebar { width: 340px; flex-shrink: 0; background: var(--bg-surface); border-right: 1px solid var(--border); padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+        .content { flex: 1; overflow-y: auto; padding: 28px 32px; min-width: 0; }
+
+        .section-title { font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); font-weight: 700; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+
+        .dropzone { border: 2px dashed var(--border); border-radius: 10px; padding: 30px 18px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-elev); }
+        .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--accent-faint); box-shadow: 0 0 24px var(--accent-glow); }
+        .dropzone .dz-icon { font-size: 1.8rem; }
+        .dropzone strong { display: block; color: var(--accent); font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.03em; margin-top: 8px; }
+        .dropzone p { margin: 6px 0 0; font-family: var(--mono); font-size: 0.66rem; color: var(--text-muted); pointer-events: none; }
+        .dropzone.success { border-color: var(--success); border-style: solid; }
+        .dropzone.success strong { color: var(--success); }
+
+        .file-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+        .file-card .fc-top { display: flex; gap: 10px; align-items: center; }
+        .file-card .fc-icon { font-size: 1.6rem; line-height: 1; }
+        .file-card .fc-name { font-family: var(--mono); font-size: 0.78rem; word-break: break-all; color: var(--text-main); }
+        .file-card .fc-fmt { font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); margin-top: 4px; }
+        .file-card .fc-grid { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-family: var(--mono); font-size: 0.66rem; }
+        .file-card .fc-grid .k { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+        .file-card .fc-grid .v { color: var(--text-muted); word-break: break-all; text-align: right; }
+
+        .badge { display: inline-block; font-family: var(--mono); font-size: 0.56rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
+        .badge.rw { color: var(--success); border-color: rgba(34,197,94,0.4); }
+        .badge.ro { color: var(--text-dim); }
+
+        .btn { padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-weight: 700; cursor: pointer; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; transition: all 0.15s; text-align: center; background: transparent; color: var(--text-main); }
+        .btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-faint); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.primary { background: var(--accent); color: #050505; border-color: var(--accent); }
+        .btn.primary:hover { background: var(--primary-hover); color: #050505; }
+        .btn.danger:hover { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.06); }
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn-row.three { grid-template-columns: 1fr 1fr 1fr; }
+
+        /* Advisory / alert banner */
+        .advisory { border-radius: 8px; padding: 12px 14px; margin-bottom: 22px; font-size: 0.82rem; line-height: 1.5; display: flex; gap: 10px; align-items: flex-start; border: 1px solid; }
+        .advisory .ad-ico { font-size: 1.1rem; line-height: 1.3; flex-shrink: 0; }
+        .advisory a { font-weight: 700; text-decoration: none; }
+        .advisory.info { background: rgba(56,189,248,0.06); border-color: rgba(56,189,248,0.4); color: #bae6fd; }
+        .advisory.info a { color: var(--info); }
+        .advisory.warn { background: rgba(245,158,11,0.07); border-color: rgba(245,158,11,0.45); color: #fde68a; }
+        .advisory.warn a { color: var(--warning); }
+        .advisory.danger { background: rgba(239,68,68,0.07); border-color: rgba(239,68,68,0.45); color: #fecaca; }
+        .advisory.danger a { color: var(--danger); }
+
+        /* Empty state */
+        .empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text-dim); gap: 14px; }
+        .empty h1 { font-family: var(--display); font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; font-size: 1.6rem; color: var(--text-muted); margin: 0; }
+        .empty p { font-family: var(--mono); font-size: 0.78rem; max-width: 440px; line-height: 1.6; }
+        .empty .fmt-legend { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 560px; margin-top: 10px; }
+        .empty .fmt-legend span { font-family: var(--mono); font-size: 0.6rem; padding: 3px 8px; border: 1px solid var(--border); border-radius: 20px; color: var(--text-muted); }
+
+        /* Metadata groups + table */
+        .search-box { margin-bottom: 18px; }
+        .search-box input { width: 100%; padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-family: var(--mono); font-size: 0.8rem; }
+        .search-box input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+        .meta-group { margin-bottom: 24px; }
+        .meta-group h3 { font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+        .meta-group h3 .gcount { color: var(--text-dim); font-weight: 400; }
+        table.meta { width: 100%; border-collapse: collapse; }
+        table.meta td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.8rem; vertical-align: top; }
+        table.meta td.k { font-family: var(--mono); font-size: 0.72rem; color: var(--text-muted); width: 34%; word-break: break-word; }
+        table.meta td.v { color: var(--text-main); word-break: break-word; font-family: var(--mono); font-size: 0.74rem; }
+        table.meta tr:hover td { background: var(--accent-faint); }
+        table.meta td.v input { width: 100%; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 5px; color: var(--text-main); font-family: var(--mono); font-size: 0.74rem; padding: 5px 7px; }
+        table.meta td.v input:focus { outline: none; border-color: var(--accent); }
+        .row-actions { text-align: right; white-space: nowrap; width: 1%; }
+        .icon-x { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 1rem; padding: 0 4px; }
+        .icon-x:hover { color: var(--danger); }
+        .edit-flag { font-family: var(--mono); font-size: 0.5rem; color: var(--success); border: 1px solid rgba(34,197,94,0.4); border-radius: 3px; padding: 1px 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+        .dirty-bar { position: sticky; bottom: 0; margin-top: 10px; background: var(--bg-surface); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; display: none; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 -4px 20px rgba(0,0,0,0.5); }
+        .dirty-bar.show { display: flex; }
+        .dirty-bar span { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); }
+
+        .hint { font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); line-height: 1.5; }
+        .hex { font-family: var(--mono); font-size: 0.66rem; color: var(--text-muted); word-break: break-all; }
+
+        .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(24px); background: var(--success); color: #052e13; font-family: var(--mono); font-weight: 700; font-size: 0.74rem; padding: 10px 18px; border-radius: 22px; opacity: 0; pointer-events: none; transition: 0.25s; z-index: 2000; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.err { background: var(--danger); color: #fff; }
+
+        @media (max-width: 860px) {
+            body { height: auto; }
+            .main-container { flex-direction: column; overflow: visible; }
+            .sidebar { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="nav-actions" data-carino-actions>
+        <input type="file" id="fileInput" hidden>
+        <button class="open-btn" onclick="document.getElementById('fileInput').click()">＋ Open File</button>
+    </div>
+
+    <div class="main-container">
+        <aside class="sidebar">
+            <div>
+                <div class="section-title">Source File</div>
+                <div class="dropzone" id="dropzone">
+                    <div class="dz-icon">📄</div>
+                    <strong>Drop a file</strong>
+                    <p>or click to browse — nothing leaves your device</p>
+                </div>
+            </div>
+
+            <div id="fileCardWrap" style="display:none;">
+                <div class="section-title">Details</div>
+                <div class="file-card" id="fileCard"></div>
+            </div>
+
+            <div id="actionsWrap" style="display:none;">
+                <div class="section-title">Actions</div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <button class="btn" id="addFieldBtn" onclick="addCustomField()" disabled>＋ Add / Create Field</button>
+                    <div class="btn-row">
+                        <button class="btn" onclick="exportMeta('json')">Export JSON</button>
+                        <button class="btn" onclick="exportMeta('csv')">Export CSV</button>
+                    </div>
+                    <button class="btn primary" id="downloadBtn" onclick="downloadModified()" disabled>⬇ Download Modified File</button>
+                    <p class="hint" id="writeHint"></p>
+                </div>
+            </div>
+
+            <div class="hint" style="margin-top:auto;">
+                All parsing runs locally in your browser. Files are never uploaded.
+            </div>
+        </aside>
+
+        <main class="content" id="content">
+            <div class="empty" id="emptyState">
+                <div style="font-size:2.4rem;">🗂️</div>
+                <h1>Metadata Editor</h1>
+                <p>Extract, edit and create metadata for almost any file — images, PDFs, audio, video, archives, fonts, certificates and binaries. Drop a file to begin.</p>
+                <div class="fmt-legend" id="fmtLegend"></div>
+            </div>
+
+            <div id="viewer" style="display:none;">
+                <div id="advisorySlot"></div>
+                <div class="search-box"><input type="text" id="metaSearch" placeholder="Search keys & values…" oninput="renderGroups()"></div>
+                <div id="groups"></div>
+                <div class="dirty-bar" id="dirtyBar">
+                    <span id="dirtyText">Unsaved edits</span>
+                    <button class="btn primary" onclick="downloadModified()">⬇ Save &amp; Download</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+<script>
+    'use strict';
+    // ============================================================
+    //  Metadata Editor — client-side format detection + parsing.
+    //  current: { file, bytes:Uint8Array, buf:ArrayBuffer, det, groups, edits:{}, added:[], removed:Set }
+    // ============================================================
+    let current = null;
+
+    const $ = s => document.querySelector(s);
+    const toastEl = () => $('#toast');
+    function toast(msg, err) {
+        const t = toastEl(); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+        clearTimeout(t._to); t._to = setTimeout(() => t.className = 'toast', 1800);
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function fmtSize(n) { if (n < 1024) return n + ' B'; const u = ['KB','MB','GB','TB']; let i = -1; do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1); return n.toFixed(n < 10 ? 2 : 1) + ' ' + u[i]; }
+    function ext(name) { const m = /\.([^.\\/]+)$/.exec(name || ''); return m ? m[1].toLowerCase() : ''; }
+    function ascii(b, s, len) { let o = ''; for (let i = s; i < s + len && i < b.length; i++) { const c = b[i]; o += (c >= 32 && c < 127) ? String.fromCharCode(c) : '.'; } return o; }
+    function starts(b, sig, off) { off = off || 0; for (let i = 0; i < sig.length; i++) if (b[off + i] !== sig[i]) return false; return true; }
+    function hexdump(b, n) { let o = ''; for (let i = 0; i < n && i < b.length; i++) o += b[i].toString(16).padStart(2, '0') + ' '; return o.trim().toUpperCase(); }
+    async function sha256(buf) { try { const h = await crypto.subtle.digest('SHA-256', buf); return [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { return '(unavailable)'; } }
+
+    // ---------- FORMAT DETECTION ----------
+    // Returns { id, label, icon, kind, mime, editable, advisory:{level,html}|null }
+    function detectFormat(b, name) {
+        const e = ext(name);
+        const A = (s, o) => ascii(b, o || 0, s.length) === s;
+        const S = (arr, o) => starts(b, arr, o);
+        const mk = (id, label, icon, kind, mime, editable, advisory) => ({ id, label, icon, kind, mime, editable: !!editable, advisory: advisory || null });
+
+        // DICOM — 'DICM' at byte 128
+        if ((b.length > 132 && ascii(b, 128, 4) === 'DICM') || e === 'dcm' || e === 'dicom')
+            return mk('dicom', 'DICOM Medical Image', '🩻', 'medical', 'application/dicom', false,
+                { level: 'info', html: 'This is a <b>DICOM</b> medical-imaging file. This tool reads it as a generic binary — for full tag editing and de-identification use the dedicated <a href="https://dicom.carino.systems" target="_blank" rel="noopener">DICOM Tag Editor</a>.' });
+
+        // Windows shortcut
+        if (e === 'lnk' || S([0x4C,0x00,0x00,0x00,0x01,0x14,0x02,0x00]))
+            return mk('lnk', 'Windows Shortcut', '🔗', 'system', 'application/x-ms-shortcut', false,
+                { level: 'info', html: 'This is a <b>Windows shortcut (.lnk)</b> — a pointer to another file or program, not a document. Its "metadata" is mostly the target path and icon reference.' });
+
+        // Images
+        if (S([0xFF,0xD8,0xFF])) return mk('jpeg', 'JPEG Image', '🖼️', 'image', 'image/jpeg', true);
+        if (S([0x89,0x50,0x4E,0x47])) return mk('png', 'PNG Image', '🖼️', 'image', 'image/png', false);
+        if (S([0x47,0x49,0x46,0x38])) return mk('gif', 'GIF Image', '🖼️', 'image', 'image/gif', false);
+        if (S([0x42,0x4D])) return mk('bmp', 'Bitmap Image', '🖼️', 'image', 'image/bmp', false);
+        if (S([0x49,0x49,0x2A,0x00]) || S([0x4D,0x4D,0x00,0x2A])) return mk('tiff', 'TIFF Image', '🖼️', 'image', 'image/tiff', false);
+        if (S([0x52,0x49,0x46,0x46]) && ascii(b, 8, 4) === 'WEBP') return mk('webp', 'WebP Image', '🖼️', 'image', 'image/webp', false);
+        if (ascii(b, 4, 4) === 'ftyp' && /heic|heix|hevc|mif1|heim/.test(ascii(b, 8, 4))) return mk('heic', 'HEIC/HEIF Image', '🖼️', 'image', 'image/heic', false);
+
+        // PDF
+        if (A('%PDF')) return mk('pdf', 'PDF Document', '📕', 'document', 'application/pdf', true);
+
+        // Audio
+        if (S([0x49,0x44,0x33]) || S([0xFF,0xFB]) || S([0xFF,0xF3]) || S([0xFF,0xF2]) || e === 'mp3') return mk('mp3', 'MP3 Audio', '🎵', 'audio', 'audio/mpeg', true);
+        if (S([0x66,0x4C,0x61,0x43])) return mk('flac', 'FLAC Audio', '🎵', 'audio', 'audio/flac', false);
+        if (S([0x4F,0x67,0x67,0x53])) return mk('ogg', 'OGG Audio', '🎵', 'audio', 'audio/ogg', false);
+        if (S([0x52,0x49,0x46,0x46]) && ascii(b, 8, 4) === 'WAVE') return mk('wav', 'WAV Audio', '🎵', 'audio', 'audio/wav', false);
+
+        // Video / containers
+        if (ascii(b, 4, 4) === 'ftyp') return mk('mp4', 'MP4 / MOV Video', '🎬', 'video', 'video/mp4', false);
+        if (S([0x1A,0x45,0xDF,0xA3])) return mk('mkv', 'Matroska / WebM Video', '🎬', 'video', 'video/x-matroska', false);
+        if (S([0x52,0x49,0x46,0x46]) && ascii(b, 8, 4) === 'AVI ') return mk('avi', 'AVI Video', '🎬', 'video', 'video/x-msvideo', false);
+
+        // Fonts
+        if (S([0x4F,0x54,0x54,0x4F])) return mk('font', 'OpenType Font (CFF)', '🔤', 'font', 'font/otf', false);
+        if (S([0x77,0x4F,0x46,0x46])) return mk('font', 'WOFF Web Font', '🔤', 'font', 'font/woff', false);
+        if (S([0x77,0x4F,0x46,0x32])) return mk('font', 'WOFF2 Web Font', '🔤', 'font', 'font/woff2', false);
+        if (S([0x00,0x01,0x00,0x00]) && (e === 'ttf' || e === 'otf' || e === '')) return mk('font', 'TrueType Font', '🔤', 'font', 'font/ttf', false);
+        if (A('true') || A('ttcf')) return mk('font', 'TrueType Font', '🔤', 'font', 'font/ttf', false);
+
+        // Archives / Office (ZIP-based)
+        if (S([0x50,0x4B,0x03,0x04]) || S([0x50,0x4B,0x05,0x06]) || S([0x50,0x4B,0x07,0x08])) {
+            const office = { docx: 'Word Document', xlsx: 'Excel Spreadsheet', pptx: 'PowerPoint', odt: 'OpenDocument Text', ods: 'OpenDocument Sheet', epub: 'EPUB Book', jar: 'Java Archive', apk: 'Android Package' };
+            if (office[e]) return mk('zip', office[e], '🗜️', 'archive', 'application/zip', false);
+            return mk('zip', 'ZIP Archive', '🗜️', 'archive', 'application/zip', false);
+        }
+        if (S([0x1F,0x8B])) return mk('gz', 'GZIP Archive', '🗜️', 'archive', 'application/gzip', false,
+            { level: 'info', html: 'GZIP stream — contains one compressed file. Only the outer header is readable here.' });
+        if (S([0x37,0x7A,0xBC,0xAF,0x27,0x1C])) return mk('7z', '7-Zip Archive', '🗜️', 'archive', 'application/x-7z-compressed', false);
+        if (S([0x52,0x61,0x72,0x21,0x1A,0x07])) return mk('rar', 'RAR Archive', '🗜️', 'archive', 'application/vnd.rar', false);
+        if (A('ustar', 257)) return mk('tar', 'TAR Archive', '🗜️', 'archive', 'application/x-tar', false);
+
+        // Executables & binaries
+        if (S([0x4D,0x5A])) return mk('pe', 'Windows Executable (PE)', '⚙️', 'binary', 'application/vnd.microsoft.portable-executable', false,
+            { level: 'warn', html: '<b>Executable binary.</b> Metadata is read from the PE header only — never run executables from untrusted sources.' });
+        if (S([0x7F,0x45,0x4C,0x46])) return mk('elf', 'ELF Binary (Linux)', '⚙️', 'binary', 'application/x-elf', false,
+            { level: 'warn', html: '<b>ELF executable / library.</b> Header metadata only — treat untrusted binaries with caution.' });
+        if (S([0xCA,0xFE,0xBA,0xBE])) return mk('class', 'Java Class / Mach-O Fat', '⚙️', 'binary', 'application/java-vm', false);
+        if (S([0xFE,0xED,0xFA,0xCE]) || S([0xFE,0xED,0xFA,0xCF]) || S([0xCF,0xFA,0xED,0xFE])) return mk('macho', 'Mach-O Binary (macOS)', '⚙️', 'binary', 'application/x-mach-binary', false,
+            { level: 'warn', html: '<b>Mach-O executable.</b> Header metadata only.' });
+        if (S([0x00,0x61,0x73,0x6D])) return mk('wasm', 'WebAssembly Module', '⚙️', 'binary', 'application/wasm', false);
+
+        // Certificates / keys (mostly text)
+        const head = ascii(b, 0, 40);
+        if (head.indexOf('-----BEGIN') === 0) {
+            if (/PRIVATE KEY/.test(head) || e === 'key')
+                return mk('key', 'Private Key (PEM)', '🔑', 'crypto', 'application/x-pem-file', false,
+                    { level: 'danger', html: '<b>Private key material.</b> Kept entirely local — never share this file. Only non-secret properties (type, size) are shown; the secret is not extracted.' });
+            if (/CERTIFICATE/.test(head))
+                return mk('cert', 'X.509 Certificate (PEM)', '📜', 'crypto', 'application/x-pem-file', false);
+            return mk('pem', 'PEM Block', '🔑', 'crypto', 'application/x-pem-file', false);
+        }
+        if (['crt','cer','der'].includes(e) || (S([0x30,0x82]) && ['crt','cer','der','p7b'].includes(e)))
+            return mk('cert', 'X.509 Certificate (DER)', '📜', 'crypto', 'application/x-x509-ca-cert', false);
+        if (['p12','pfx'].includes(e))
+            return mk('key', 'PKCS#12 Keystore', '🔑', 'crypto', 'application/x-pkcs12', false,
+                { level: 'danger', html: '<b>PKCS#12 keystore</b> — usually holds a private key. Handle with care; parsed locally only.' });
+        if (['gpg','pgp','asc'].includes(e))
+            return mk('pgp', 'PGP / GPG Data', '🔑', 'crypto', 'application/pgp', false,
+                { level: 'warn', html: 'PGP/GPG data — may contain keys or an encrypted message. Parsed locally.' });
+
+        // SQLite
+        if (A('SQLite format 3')) return mk('sqlite', 'SQLite Database', '🗃️', 'data', 'application/vnd.sqlite3', false);
+
+        // Text-ish
+        if (['txt','md','csv','log','json','xml','yaml','yml','html','css','js','ts','py','sh','ini','conf','toml'].includes(e))
+            return mk('text', 'Text / Source File', '📃', 'text', 'text/plain', false);
+
+        return mk('bin', 'Unknown / Binary', '❔', 'binary', 'application/octet-stream', false,
+            { level: 'info', html: 'Unrecognized format — showing generic file information and a byte signature. The magic number below may help identify it.' });
+    }
+
+    // ---------- LOAD ----------
+    async function loadFile(file) {
+        try {
+            const buf = await file.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            const det = detectFormat(bytes, file.name);
+            current = { file, bytes, buf, det, groups: [], edits: {}, added: [], removed: new Set() };
+
+            // Universal "File" group
+            const digest = await sha256(buf);
+            current.groups.push({ name: 'File', rows: [
+                row('Name', file.name), row('Size', fmtSize(file.size) + ` (${file.size.toLocaleString()} bytes)`),
+                row('Detected type', det.label), row('MIME (guess)', det.mime),
+                row('Extension', ext(file.name) || '(none)'),
+                row('Last modified', file.lastModified ? new Date(file.lastModified).toLocaleString() : '(unknown)'),
+                row('SHA-256', digest), row('Signature (hex)', hexdump(bytes, 12))
+            ]});
+
+            // Format-specific parse (guarded)
+            try { await parseByFormat(current); }
+            catch (err) { console.warn('parser error', err); current.groups.push({ name: 'Parser', rows: [row('Note', 'Could not fully parse this format: ' + err.message)] }); }
+
+            renderAll();
+        } catch (err) { toast('Failed to read file: ' + err.message, true); console.error(err); }
+    }
+
+    function row(k, v, opts) { return Object.assign({ k, v: v == null ? '' : String(v), editable: false, key: null }, opts || {}); }
+
+    // ---------- FORMAT PARSERS ----------
+    async function parseByFormat(c) {
+        const id = c.det.id, b = c.bytes;
+        switch (id) {
+            case 'jpeg': case 'png': case 'gif': case 'tiff': case 'webp': case 'heic': case 'bmp': return parseImage(c);
+            case 'pdf': return parsePDF(c);
+            case 'mp3': return parseMP3(c);
+            case 'zip': return parseZip(c);
+            case 'font': return parseFont(c);
+            case 'cert': case 'pem': return parseCert(c);
+            case 'key': return parseKeyInfo(c);
+            case 'pe': return parsePE(c);
+            case 'elf': return parseELF(c);
+            case 'mp4': case 'avi': case 'mkv': return parseVideo(c);
+            case 'text': return parseText(c);
+            default: return;
+        }
+    }
+
+    // Images — read via exifr (rich), editable subset for JPEG via piexif
+    async function parseImage(c) {
+        // intrinsic dimensions
+        await new Promise(res => { const img = new Image(); const u = URL.createObjectURL(c.file);
+            img.onload = () => { c.groups.push({ name: 'Image', rows: [row('Width', img.naturalWidth + ' px'), row('Height', img.naturalHeight + ' px'), row('Megapixels', ((img.naturalWidth*img.naturalHeight)/1e6).toFixed(1))] }); URL.revokeObjectURL(u); res(); };
+            img.onerror = () => { URL.revokeObjectURL(u); res(); }; img.src = u; });
+
+        if (typeof exifr === 'undefined') { c.groups.push({ name: 'EXIF', rows: [row('Note', 'EXIF library not loaded (offline?).')] }); return; }
+        let data = null;
+        try { data = await exifr.parse(c.file, { tiff: true, ifd0: true, exif: true, gps: true, xmp: true, iptc: true, icc: true, interop: true }); } catch (e) {}
+        if (!data || !Object.keys(data).length) { c.groups.push({ name: 'EXIF / XMP', rows: [row('Note', 'No embedded EXIF/XMP/IPTC metadata found.')] }); }
+        else {
+            const rows = Object.entries(data).map(([k, v]) => {
+                if (v instanceof Date) v = v.toISOString();
+                else if (Array.isArray(v)) v = v.join(', ');
+                else if (v && typeof v === 'object') v = JSON.stringify(v);
+                return row(k, v);
+            });
+            c.groups.push({ name: 'EXIF / XMP / IPTC', rows });
+            if (data.latitude != null && data.longitude != null)
+                c.det.advisory = c.det.advisory || { level: 'warn', html: `This image embeds <b>GPS coordinates</b> (${(+data.latitude).toFixed(5)}, ${(+data.longitude).toFixed(5)}). Use "Strip GPS" below before sharing to protect location privacy.` };
+        }
+
+        // Editable EXIF fields (JPEG only, via piexif on save)
+        if (c.det.id === 'jpeg') {
+            const cur = data || {};
+            const ed = [
+                ['ImageDescription', cur.ImageDescription], ['Artist', cur.Artist], ['Copyright', cur.Copyright],
+                ['Software', cur.Software], ['Make', cur.Make], ['Model', cur.Model],
+                ['DateTimeOriginal', cur.DateTimeOriginal instanceof Date ? fmtExifDate(cur.DateTimeOriginal) : (cur.DateTimeOriginal || '')]
+            ].map(([k, v]) => row(k, v == null ? '' : v, { editable: true, key: k }));
+            c.hasGps = (cur.latitude != null);
+            if (c.hasGps) ed.push(row('StripGPS', 'no', { editable: true, key: 'StripGPS' }));
+            c.groups.push({ name: 'Editable EXIF (JPEG)', rows: ed });
+        }
+    }
+    function fmtExifDate(d) { const p = n => String(n).padStart(2,'0'); return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+
+    async function parsePDF(c) {
+        if (typeof PDFLib === 'undefined') { c.groups.push({ name: 'PDF', rows: [row('Note', 'PDF library not loaded (offline?).')] }); return; }
+        let doc; try { doc = await PDFLib.PDFDocument.load(c.buf, { updateMetadata: false }); }
+        catch (e) { c.groups.push({ name: 'PDF', rows: [row('Note', 'Could not open (encrypted or damaged): ' + e.message)] }); if (/encrypt/i.test(e.message)) c.det.advisory = { level: 'warn', html: 'This PDF appears to be <b>encrypted / password-protected</b>; metadata cannot be edited without the password.' }; return; }
+        c.pdfDoc = doc;
+        const g = v => { try { return v(); } catch (e) { return null; } };
+        const d2s = d => d ? d.toISOString() : '';
+        const rows = [
+            ['Title', g(()=>doc.getTitle())], ['Author', g(()=>doc.getAuthor())], ['Subject', g(()=>doc.getSubject())],
+            ['Keywords', g(()=>doc.getKeywords())], ['Creator', g(()=>doc.getCreator())], ['Producer', g(()=>doc.getProducer())]
+        ].map(([k, v]) => row(k, v || '', { editable: true, key: k }));
+        c.groups.push({ name: 'Document Info', rows });
+        c.groups.push({ name: 'PDF', rows: [
+            row('Pages', doc.getPageCount()),
+            row('Created', d2s(g(()=>doc.getCreationDate()))),
+            row('Modified', d2s(g(()=>doc.getModificationDate())))
+        ]});
+    }
+
+    function parseMP3(c) {
+        return new Promise(resolve => {
+            if (typeof jsmediatags === 'undefined') { c.groups.push({ name: 'ID3', rows: [row('Note', 'ID3 library not loaded (offline?).')] }); return resolve(); }
+            jsmediatags.read(c.file, {
+                onSuccess: ({ tags }) => {
+                    const t = tags || {};
+                    const ed = [
+                        ['title', t.title], ['artist', t.artist], ['album', t.album], ['year', t.year],
+                        ['genre', t.genre], ['track', t.track], ['comment', t.comment && t.comment.text]
+                    ].map(([k, v]) => row(k, v == null ? '' : v, { editable: true, key: k }));
+                    c.groups.push({ name: 'ID3 Tags', rows: ed });
+                    if (t.picture) c.groups.push({ name: 'Artwork', rows: [row('Embedded image', `${t.picture.format}, ${t.picture.data.length.toLocaleString()} bytes`)] });
+                    resolve();
+                },
+                onError: (e) => { c.groups.push({ name: 'ID3', rows: [row('Note', 'No readable ID3 tags: ' + (e.info || e.type))] }); resolve(); }
+            });
+        });
+    }
+
+    async function parseZip(c) {
+        if (typeof JSZip === 'undefined') { c.groups.push({ name: 'Archive', rows: [row('Note', 'ZIP library not loaded (offline?).')] }); return; }
+        const zip = await JSZip.loadAsync(c.buf);
+        const names = Object.keys(zip.files);
+        c.groups.push({ name: 'Archive', rows: [
+            row('Entries', names.length),
+            row('First entries', names.slice(0, 8).join(', ') + (names.length > 8 ? ' …' : ''))
+        ]});
+        // Office core properties
+        const core = zip.files['docProps/core.xml'];
+        if (core) {
+            const xml = await core.async('string');
+            const pick = tag => { const m = new RegExp('<' + tag + '[^>]*>([^<]*)</' + tag + '>').exec(xml); return m ? m[1] : ''; };
+            c.groups.push({ name: 'Office Properties', rows: [
+                row('Title', pick('dc:title')), row('Creator', pick('dc:creator')), row('Subject', pick('dc:subject')),
+                row('Keywords', pick('cp:keywords')), row('Last modified by', pick('cp:lastModifiedBy')),
+                row('Revision', pick('cp:revision')), row('Created', pick('dcterms:created')), row('Modified', pick('dcterms:modified'))
+            ]});
+        }
+        const appx = zip.files['docProps/app.xml'];
+        if (appx) { const xml = await appx.async('string'); const pick = t => { const m = new RegExp('<' + t + '[^>]*>([^<]*)</' + t + '>').exec(xml); return m ? m[1] : ''; };
+            c.groups.push({ name: 'Application', rows: [row('Application', pick('Application')), row('Company', pick('Company')), row('Pages', pick('Pages')), row('Words', pick('Words'))].filter(r => r.v) }); }
+    }
+
+    async function parseFont(c) {
+        if (typeof opentype === 'undefined') { c.groups.push({ name: 'Font', rows: [row('Note', 'Font library not loaded (offline?).')] }); return; }
+        let f; try { f = opentype.parse(c.buf); } catch (e) { c.groups.push({ name: 'Font', rows: [row('Note', 'Could not parse font: ' + e.message)] }); return; }
+        const n = f.names || {}; const en = o => o ? (o.en || Object.values(o)[0] || '') : '';
+        c.groups.push({ name: 'Font Names', rows: [
+            row('Family', en(n.fontFamily)), row('Subfamily', en(n.fontSubfamily)), row('Full name', en(n.fullName)),
+            row('Version', en(n.version)), row('PostScript name', en(n.postScriptName)),
+            row('Designer', en(n.designer)), row('Manufacturer', en(n.manufacturer)),
+            row('Copyright', en(n.copyright)), row('License', en(n.license)), row('License URL', en(n.licenseURL))
+        ].filter(r => r.v) });
+        c.groups.push({ name: 'Font Technical', rows: [row('Units/em', f.unitsPerEm), row('Glyphs', f.glyphs && f.glyphs.length), row('Ascender', f.ascender), row('Descender', f.descender)] });
+    }
+
+    async function parseCert(c) {
+        if (typeof forge === 'undefined') { c.groups.push({ name: 'Certificate', rows: [row('Note', 'Crypto library not loaded (offline?).')] }); return; }
+        try {
+            let cert;
+            const txt = new TextDecoder().decode(c.bytes.slice(0, 8));
+            if (txt.indexOf('-----') === 0) cert = forge.pki.certificateFromPem(new TextDecoder().decode(c.bytes));
+            else cert = forge.pki.certificateFromAsn1(forge.asn1.fromDer(forge.util.createBuffer(c.bytes)));
+            const nm = a => a.attributes.map(x => `${x.shortName || x.name}=${x.value}`).join(', ');
+            c.groups.push({ name: 'Certificate', rows: [
+                row('Subject', nm(cert.subject)), row('Issuer', nm(cert.issuer)),
+                row('Serial', cert.serialNumber), row('Valid from', cert.validity.notBefore.toISOString()),
+                row('Valid to', cert.validity.notAfter.toISOString()),
+                row('Signature alg', cert.siginfo && cert.siginfo.algorithmOid), row('Version', 'v' + (cert.version + 1))
+            ]});
+            const exp = cert.validity.notAfter < new Date();
+            if (exp) c.det.advisory = { level: 'warn', html: 'This certificate is <b>expired</b> (valid until ' + cert.validity.notAfter.toISOString().slice(0,10) + ').' };
+        } catch (e) { c.groups.push({ name: 'Certificate', rows: [row('Note', 'Could not parse certificate: ' + e.message)] }); }
+    }
+
+    function parseKeyInfo(c) {
+        // Never extract secret material — describe only.
+        const txt = ascii(c.bytes, 0, 60);
+        const m = /-----BEGIN ([A-Z0-9 ]+)-----/.exec(txt);
+        c.groups.push({ name: 'Key', rows: [
+            row('Block type', m ? m[1].trim() : '(binary keystore)'),
+            row('Encoding', txt.indexOf('-----') === 0 ? 'PEM (base64 text)' : 'DER / PKCS#12 (binary)'),
+            row('Security', 'Secret contents intentionally not displayed')
+        ]});
+    }
+
+    function parsePE(c) {
+        const b = c.bytes, dv = new DataView(c.buf);
+        try {
+            const peOff = dv.getUint32(0x3C, true);
+            if (!(b[peOff] === 0x50 && b[peOff+1] === 0x45 && b[peOff+2] === 0 && b[peOff+3] === 0)) throw new Error('no PE header');
+            const machine = dv.getUint16(peOff + 4, true);
+            const numSec = dv.getUint16(peOff + 6, true);
+            const ts = dv.getUint32(peOff + 8, true);
+            const optMagic = dv.getUint16(peOff + 24, true);
+            const machines = { 0x14c: 'x86 (i386)', 0x8664: 'x64 (AMD64)', 0xaa64: 'ARM64', 0x1c0: 'ARM', 0x200: 'IA64' };
+            c.groups.push({ name: 'PE Header', rows: [
+                row('Architecture', machines[machine] || ('0x' + machine.toString(16))),
+                row('Format', optMagic === 0x20b ? 'PE32+ (64-bit)' : optMagic === 0x10b ? 'PE32 (32-bit)' : 'unknown'),
+                row('Sections', numSec),
+                row('Compiled (timestamp)', ts ? new Date(ts * 1000).toISOString() : '(zeroed)')
+            ]});
+        } catch (e) { c.groups.push({ name: 'PE Header', rows: [row('Note', 'Could not parse PE header: ' + e.message)] }); }
+    }
+
+    function parseELF(c) {
+        const b = c.bytes;
+        const cls = b[4] === 1 ? '32-bit' : b[4] === 2 ? '64-bit' : '?';
+        const endian = b[5] === 1 ? 'little-endian' : 'big-endian';
+        const types = { 1: 'Relocatable', 2: 'Executable', 3: 'Shared object (.so)', 4: 'Core dump' };
+        const le = b[5] === 1; const dv = new DataView(c.buf);
+        const etype = dv.getUint16(16, le); const machine = dv.getUint16(18, le);
+        const machs = { 0x3e: 'x86-64', 0x03: 'x86', 0xb7: 'AArch64', 0x28: 'ARM', 0xf3: 'RISC-V' };
+        c.groups.push({ name: 'ELF Header', rows: [
+            row('Class', cls), row('Endianness', endian), row('Type', types[etype] || etype),
+            row('Architecture', machs[machine] || ('0x' + machine.toString(16)))
+        ]});
+    }
+
+    function parseVideo(c) {
+        // list top-level MP4/MOV atoms (best-effort)
+        const b = c.bytes, dv = new DataView(c.buf); const atoms = [];
+        if (ascii(b, 4, 4) === 'ftyp') {
+            let off = 0;
+            for (let i = 0; i < 20 && off + 8 <= b.length; i++) {
+                const size = dv.getUint32(off, false); const type = ascii(b, off + 4, 4);
+                if (size < 8) break; atoms.push(type); off += size;
+            }
+            c.groups.push({ name: 'Container', rows: [row('Major brand', ascii(b, 8, 4)), row('Top-level atoms', atoms.join(', '))] });
+        }
+        return new Promise(res => { const v = document.createElement('video'); const u = URL.createObjectURL(c.file);
+            v.onloadedmetadata = () => { c.groups.push({ name: 'Video', rows: [row('Duration', v.duration ? v.duration.toFixed(1) + ' s' : '?'), row('Resolution', (v.videoWidth||'?') + ' × ' + (v.videoHeight||'?'))] }); URL.revokeObjectURL(u); renderAll(); res(); };
+            v.onerror = () => { URL.revokeObjectURL(u); res(); }; v.src = u; });
+    }
+
+    function parseText(c) {
+        const txt = new TextDecoder().decode(c.bytes.slice(0, 100000));
+        const lines = txt.split(/\r\n|\r|\n/).length;
+        c.groups.push({ name: 'Text', rows: [row('Lines (first 100 KB)', lines.toLocaleString()), row('Characters', txt.length.toLocaleString()), row('Encoding (assumed)', 'UTF-8')] });
+    }
+
+    // ---------- RENDER ----------
+    function renderAll() {
+        $('#emptyState').style.display = 'none';
+        $('#viewer').style.display = 'block';
+        $('#fileCardWrap').style.display = 'block';
+        $('#actionsWrap').style.display = 'block';
+        $('#dropzone').classList.add('success');
+        $('#dropzone').querySelector('strong').textContent = 'File loaded';
+
+        const d = current.det;
+        const editable = d.editable;
+        $('#fileCard').innerHTML = `
+            <div class="fc-top">
+                <div class="fc-icon">${d.icon}</div>
+                <div><div class="fc-name">${esc(current.file.name)}</div>
+                <div class="fc-fmt">${esc(d.label)} <span class="badge ${editable ? 'rw' : 'ro'}">${editable ? 'Editable' : 'Read-only'}</span></div></div>
+            </div>
+            <div class="fc-grid">
+                <span class="k">Size</span><span class="v">${fmtSize(current.file.size)}</span>
+                <span class="k">Kind</span><span class="v">${esc(d.kind)}</span>
+                <span class="k">Signature</span><span class="v">${hexdump(current.bytes, 6)}</span>
+            </div>`;
+
+        $('#addFieldBtn').disabled = !editable;
+        $('#downloadBtn').disabled = !editable;
+        const hint = $('#writeHint');
+        if (editable) hint.textContent = current.hasGps || current.det.id === 'jpeg'
+            ? 'Edit fields below or add new ones, then download. JPEG: use the Strip-GPS field to blank location.'
+            : 'Edit fields below or add new ones, then download the rewritten file.';
+        else hint.textContent = 'This format is extract-only in the browser — export JSON/CSV to save the metadata.';
+
+        // GPS strip helper for JPEG
+        if (current.det.id === 'jpeg' && !current._gpsAdded) { current._gpsAdded = true; }
+
+        renderAdvisory();
+        renderGroups();
+    }
+
+    function renderAdvisory() {
+        const slot = $('#advisorySlot'); const a = current.det.advisory;
+        if (!a) { slot.innerHTML = ''; return; }
+        const ico = a.level === 'danger' ? '⛔' : a.level === 'warn' ? '⚠️' : 'ℹ️';
+        slot.innerHTML = `<div class="advisory ${a.level}"><span class="ad-ico">${ico}</span><div>${a.html}</div></div>`;
+    }
+
+    function renderGroups() {
+        const q = ($('#metaSearch').value || '').toLowerCase();
+        const host = $('#groups'); host.innerHTML = '';
+        let shown = 0;
+        current.groups.forEach((g, gi) => {
+            const rows = g.rows.filter(r => !r._removed && (!q || (r.k + ' ' + r.v).toLowerCase().includes(q)));
+            if (!rows.length) return;
+            const wrap = document.createElement('div'); wrap.className = 'meta-group';
+            wrap.innerHTML = `<h3>${esc(g.name)} <span class="gcount">${rows.length}</span></h3>`;
+            const tbl = document.createElement('table'); tbl.className = 'meta';
+            rows.forEach(r => {
+                const ri = g.rows.indexOf(r); shown++;
+                const tr = document.createElement('tr');
+                const staged = current.edits[stageKey(gi, ri)];
+                const val = staged != null ? staged : r.v;
+                if (r.editable) {
+                    tr.innerHTML = `<td class="k">${esc(r.k)}${staged != null ? '<span class="edit-flag">edited</span>' : ''}</td>
+                        <td class="v"><input value="${esc(val)}" data-g="${gi}" data-r="${ri}" oninput="stageEdit(this)"></td>
+                        <td class="row-actions"><button class="icon-x" title="Clear" onclick="clearField(${gi},${ri})">⌫</button></td>`;
+                } else {
+                    tr.innerHTML = `<td class="k">${esc(r.k)}</td><td class="v">${esc(val)}</td><td class="row-actions"></td>`;
+                }
+                tbl.appendChild(tr);
+            });
+            wrap.appendChild(tbl); host.appendChild(wrap);
+        });
+        if (!shown) host.innerHTML = '<p class="hint">No fields match your search.</p>';
+        updateDirty();
+    }
+
+    function stageKey(gi, ri) { return gi + ':' + ri; }
+    function stageEdit(input) {
+        const gi = +input.dataset.g, ri = +input.dataset.r;
+        const orig = current.groups[gi].rows[ri].v;
+        if (input.value === orig) delete current.edits[stageKey(gi, ri)];
+        else current.edits[stageKey(gi, ri)] = input.value;
+        updateDirty();
+    }
+    function clearField(gi, ri) { current.edits[stageKey(gi, ri)] = ''; renderGroups(); }
+
+    function addCustomField() {
+        if (!current || !current.det.editable) return;
+        const id = current.det.id;
+        const known = id === 'pdf' ? ['Title','Author','Subject','Keywords','Creator','Producer']
+                    : id === 'jpeg' ? ['ImageDescription','Artist','Copyright','Software','Make','Model','DateTimeOriginal']
+                    : ['title','artist','album','year','genre','track','comment'];
+        const key = prompt('Field name to create/set:\n(known: ' + known.join(', ') + ')');
+        if (!key) return;
+        const val = prompt('Value for "' + key + '":') || '';
+        // find the editable group (last one with editable rows)
+        let gi = current.groups.findIndex(g => g.rows.some(r => r.editable));
+        if (gi < 0) gi = current.groups.length - 1;
+        current.groups[gi].rows.push(row(key, val, { editable: true, key }));
+        renderGroups(); toast('Field added — download to write it');
+    }
+
+    function updateDirty() {
+        const n = Object.keys(current.edits || {}).length;
+        const bar = $('#dirtyBar');
+        if (n > 0) { bar.classList.add('show'); $('#dirtyText').textContent = `${n} unsaved edit${n>1?'s':''}`; }
+        else bar.classList.remove('show');
+    }
+
+    // gather current editable values keyed by their `key`
+    function collectEdits() {
+        const out = {};
+        current.groups.forEach((g, gi) => g.rows.forEach((r, ri) => {
+            if (!r.editable || !r.key) return;
+            const staged = current.edits[stageKey(gi, ri)];
+            out[r.key] = staged != null ? staged : r.v;
+        }));
+        return out;
+    }
+
+    // ---------- WRITE / DOWNLOAD ----------
+    async function downloadModified() {
+        if (!current || !current.det.editable) return;
+        try {
+            const id = current.det.id;
+            if (id === 'pdf') return await writePDF();
+            if (id === 'jpeg') return writeJPEG();
+            if (id === 'mp3') return writeMP3();
+        } catch (e) { toast('Write failed: ' + e.message, true); console.error(e); }
+    }
+
+    async function writePDF() {
+        if (typeof PDFLib === 'undefined' || !current.pdfDoc) throw new Error('PDF library unavailable');
+        const doc = current.pdfDoc; const v = collectEdits();
+        const set = (fn, val) => { try { fn(val || ''); } catch (e) {} };
+        set(doc.setTitle.bind(doc), v.Title); set(doc.setAuthor.bind(doc), v.Author);
+        set(doc.setSubject.bind(doc), v.Subject);
+        set(doc.setKeywords.bind(doc), (v.Keywords || '').split(/[,;]\s*/).filter(Boolean));
+        set(doc.setCreator.bind(doc), v.Creator); set(doc.setProducer.bind(doc), v.Producer);
+        const bytes = await doc.save();
+        triggerDownload(new Blob([bytes], { type: 'application/pdf' }), rename(current.file.name, '-meta'));
+    }
+
+    function writeJPEG() {
+        if (typeof piexif === 'undefined') throw new Error('EXIF library unavailable');
+        const v = collectEdits();
+        const bin = uint8ToBinary(current.bytes);
+        let exifObj; try { exifObj = piexif.load(bin); } catch (e) { exifObj = { '0th': {}, 'Exif': {}, 'GPS': {} }; }
+        const Z = exifObj['0th'] = exifObj['0th'] || {}, E = exifObj['Exif'] = exifObj['Exif'] || {};
+        const setZ = (tag, val) => { if (val != null && val !== '') Z[tag] = val; else delete Z[tag]; };
+        setZ(piexif.ImageIFD.ImageDescription, v.ImageDescription);
+        setZ(piexif.ImageIFD.Artist, v.Artist);
+        setZ(piexif.ImageIFD.Copyright, v.Copyright);
+        setZ(piexif.ImageIFD.Software, v.Software);
+        setZ(piexif.ImageIFD.Make, v.Make);
+        setZ(piexif.ImageIFD.Model, v.Model);
+        if (v.DateTimeOriginal) E[piexif.ExifIFD.DateTimeOriginal] = v.DateTimeOriginal;
+        if (v.__stripGps === 'yes' || v.StripGPS === 'yes') exifObj['GPS'] = {};
+        const exifStr = piexif.dump(exifObj);
+        const newBin = piexif.insert(exifStr, bin);
+        triggerDownload(new Blob([binaryToUint8(newBin)], { type: 'image/jpeg' }), rename(current.file.name, '-meta'));
+    }
+
+    function writeMP3() {
+        if (typeof ID3Writer === 'undefined') throw new Error('ID3 library unavailable');
+        const v = collectEdits();
+        const w = new ID3Writer(current.buf);
+        const S = (frame, val) => { if (val != null && val !== '') try { w.setFrame(frame, val); } catch (e) {} };
+        S('TIT2', v.title); S('TPE1', v.artist ? [v.artist] : null); S('TALB', v.album);
+        if (v.year && !isNaN(+v.year)) S('TYER', +v.year);
+        S('TCON', v.genre ? [v.genre] : null);
+        if (v.track) S('TRCK', String(v.track));
+        if (v.comment) S('COMM', { description: '', text: v.comment, language: 'eng' });
+        w.addTag();
+        triggerDownload(w.getBlob(), rename(current.file.name, '-meta'));
+    }
+
+    function uint8ToBinary(u8) { let s = ''; const CH = 0x8000; for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH)); return s; }
+    function binaryToUint8(bin) { const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i) & 0xff; return u; }
+    function rename(name, suffix) { const i = name.lastIndexOf('.'); return i < 0 ? name + suffix : name.slice(0, i) + suffix + name.slice(i); }
+    function triggerDownload(blob, filename) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); toast('Downloaded ' + filename); }
+
+    // ---------- EXPORT ----------
+    function exportMeta(kind) {
+        if (!current) return;
+        const flat = [];
+        current.groups.forEach(g => g.rows.forEach((r, ri) => {
+            const gi = current.groups.indexOf(g);
+            const staged = current.edits[stageKey(gi, ri)];
+            flat.push({ group: g.name, key: r.k, value: staged != null ? staged : r.v });
+        }));
+        let blob, fn;
+        if (kind === 'json') {
+            const obj = { file: current.file.name, type: current.det.label, extracted: {} };
+            current.groups.forEach(g => { obj.extracted[g.name] = {}; g.rows.forEach((r, ri) => { const gi = current.groups.indexOf(g); const st = current.edits[stageKey(gi, ri)]; obj.extracted[g.name][r.k] = st != null ? st : r.v; }); });
+            blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }); fn = rename(current.file.name, '-metadata') + '.json';
+        } else {
+            const esc2 = s => '"' + String(s).replace(/"/g, '""') + '"';
+            const csv = 'Group,Key,Value\n' + flat.map(r => [r.group, r.key, r.value].map(esc2).join(',')).join('\n');
+            blob = new Blob([csv], { type: 'text/csv' }); fn = rename(current.file.name, '-metadata') + '.csv';
+        }
+        triggerDownload(blob, fn);
+    }
+
+    // ---------- WIRING ----------
+    function initLegend() {
+        const kinds = ['JPEG','PNG','TIFF','HEIC','PDF','MP3','MP4','MKV','ZIP','DOCX','XLSX','TTF/OTF','WOFF','X.509 cert','PEM key','EXE (PE)','ELF','Mach-O','WASM','SQLite','DICOM→', '+ any binary'];
+        $('#fmtLegend').innerHTML = kinds.map(k => `<span>${k}</span>`).join('');
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+        initLegend();
+        const dz = $('#dropzone'), fi = $('#fileInput');
+        dz.onclick = () => fi.click();
+        dz.ondragover = e => { e.preventDefault(); dz.classList.add('dragover'); };
+        dz.ondragleave = () => dz.classList.remove('dragover');
+        dz.ondrop = e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); };
+        fi.onchange = e => { if (e.target.files.length) loadFile(e.target.files[0]); };
+        // whole-window drop (replaces the current file too)
+        document.addEventListener('dragover', e => e.preventDefault());
+        document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer && e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+    });
+</script>
+<script src="carino-navbar.js" data-app="Metadata" defer></script>
+</body>
+</html>
