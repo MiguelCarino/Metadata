@@ -129,6 +129,14 @@
         .dirty-bar.show { display: flex; }
         .dirty-bar span { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); }
 
+        .btn.mini { padding: 4px 10px; font-size: 0.6rem; display: inline-block; width: auto; }
+
+        /* Recommended-software banner */
+        .reco { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 22px; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; }
+        .reco-lbl { font-family: var(--mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-right: 4px; }
+        .reco-chip { font-family: var(--mono); font-size: 0.66rem; padding: 4px 10px; border: 1px solid var(--border); border-radius: 20px; color: var(--text-muted); text-decoration: none; transition: 0.15s; white-space: nowrap; }
+        .reco-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-faint); }
+
         .hint { font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); line-height: 1.5; }
         .hex { font-family: var(--mono); font-size: 0.66rem; color: var(--text-muted); word-break: break-all; }
 
@@ -194,6 +202,7 @@
 
             <div id="viewer" style="display:none;">
                 <div id="advisorySlot"></div>
+                <div id="recoSlot"></div>
                 <div class="search-box"><input type="text" id="metaSearch" placeholder="Search keys & values…" oninput="renderGroups()"></div>
                 <div id="groups"></div>
                 <div class="dirty-bar" id="dirtyBar">
@@ -317,6 +326,11 @@
             return mk('pgp', 'PGP / GPG Data', '🔑', 'crypto', 'application/pgp', false,
                 { level: 'warn', html: 'PGP/GPG data — may contain keys or an encrypted message. Parsed locally.' });
 
+        // KeePass password database
+        if (e === 'kdbx' || S([0x03,0xD9,0xA2,0x9A]))
+            return mk('kdbx', 'KeePass Password Database', '🔐', 'crypto', 'application/x-keepass2', false,
+                { level: 'info', html: 'Encrypted <b>KeePass</b> database — its entries are protected by your master key and cannot be read here. Open it in a password manager.' });
+
         // SQLite
         if (A('SQLite format 3')) return mk('sqlite', 'SQLite Database', '🗃️', 'data', 'application/vnd.sqlite3', false);
 
@@ -329,21 +343,31 @@
     }
 
     // ---------- LOAD ----------
+    const HEAD_BYTES       = 512 * 1024;          // slice read for detection + header parsing
+    const SHA_AUTO_LIMIT   = 50  * 1024 * 1024;   // 50 MB — above this SHA is on-demand (avoids a UI freeze)
+    const PARSE_FULL_LIMIT = 256 * 1024 * 1024;   // 256 MB — above this we never pull the whole file into RAM
+
     async function loadFile(file) {
         try {
-            const buf = await file.arrayBuffer();
-            const bytes = new Uint8Array(buf);
+            // Read only a head slice for detection / header parsing. Pulling a
+            // multi-GB file wholesale into an ArrayBuffer was the real memory hog.
+            const headBuf = await file.slice(0, HEAD_BYTES).arrayBuffer();
+            const bytes = new Uint8Array(headBuf);
             const det = detectFormat(bytes, file.name);
+            // Full buffer only for reasonably-sized files; larger ones parse on demand.
+            const buf = file.size <= PARSE_FULL_LIMIT ? await file.arrayBuffer() : null;
             current = { file, bytes, buf, det, groups: [], edits: {}, added: [], removed: new Set() };
 
-            // Universal "File" group
-            const digest = await sha256(buf);
+            // Universal "File" group — SHA is deferred for big files (button).
+            const shaRow = file.size <= SHA_AUTO_LIMIT
+                ? row('SHA-256', await sha256(buf))
+                : row('SHA-256', '', { key: '__sha', html: `<button class="btn mini" onclick="computeSha()">Compute — ${fmtSize(file.size)}</button>` });
             current.groups.push({ name: 'File', rows: [
                 row('Name', file.name), row('Size', fmtSize(file.size) + ` (${file.size.toLocaleString()} bytes)`),
                 row('Detected type', det.label), row('MIME (guess)', det.mime),
                 row('Extension', ext(file.name) || '(none)'),
                 row('Last modified', file.lastModified ? new Date(file.lastModified).toLocaleString() : '(unknown)'),
-                row('SHA-256', digest), row('Signature (hex)', hexdump(bytes, 12))
+                shaRow, row('Signature (hex)', hexdump(bytes, 12))
             ]});
 
             // Format-specific parse (guarded)
@@ -352,6 +376,19 @@
 
             renderAll();
         } catch (err) { toast('Failed to read file: ' + err.message, true); console.error(err); }
+    }
+
+    // On-demand SHA-256 for large files (reads the file transiently; does not cache it).
+    async function computeSha() {
+        const shaRow = current.groups[0].rows.find(r => r.key === '__sha');
+        if (!shaRow) return;
+        shaRow.html = '<span class="hint">Hashing…</span>'; renderGroups();
+        try {
+            const buf = current.buf || await current.file.arrayBuffer();
+            shaRow.v = await sha256(buf);
+        } catch (e) { shaRow.v = '(failed: ' + e.message + ')'; }
+        shaRow.html = null; shaRow.key = null;
+        renderGroups(); toast('SHA-256 computed');
     }
 
     function row(k, v, opts) { return Object.assign({ k, v: v == null ? '' : String(v), editable: false, key: null }, opts || {}); }
@@ -414,6 +451,7 @@
     function fmtExifDate(d) { const p = n => String(n).padStart(2,'0'); return `${d.getFullYear()}:${p(d.getMonth()+1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 
     async function parsePDF(c) {
+        if (!c.buf) { c.groups.push({ name: 'PDF', rows: [row('Note', 'File too large to parse in-browser (over ' + fmtSize(PARSE_FULL_LIMIT) + ').')] }); return; }
         if (typeof PDFLib === 'undefined') { c.groups.push({ name: 'PDF', rows: [row('Note', 'PDF library not loaded (offline?).')] }); return; }
         let doc; try { doc = await PDFLib.PDFDocument.load(c.buf, { updateMetadata: false }); }
         catch (e) { c.groups.push({ name: 'PDF', rows: [row('Note', 'Could not open (encrypted or damaged): ' + e.message)] }); if (/encrypt/i.test(e.message)) c.det.advisory = { level: 'warn', html: 'This PDF appears to be <b>encrypted / password-protected</b>; metadata cannot be edited without the password.' }; return; }
@@ -452,6 +490,7 @@
     }
 
     async function parseZip(c) {
+        if (!c.buf) { c.groups.push({ name: 'Archive', rows: [row('Note', 'Archive too large to open in-browser (over ' + fmtSize(PARSE_FULL_LIMIT) + ').')] }); return; }
         if (typeof JSZip === 'undefined') { c.groups.push({ name: 'Archive', rows: [row('Note', 'ZIP library not loaded (offline?).')] }); return; }
         const zip = await JSZip.loadAsync(c.buf);
         const names = Object.keys(zip.files);
@@ -476,6 +515,7 @@
     }
 
     async function parseFont(c) {
+        if (!c.buf) { c.groups.push({ name: 'Font', rows: [row('Note', 'Font too large to parse in-browser.')] }); return; }
         if (typeof opentype === 'undefined') { c.groups.push({ name: 'Font', rows: [row('Note', 'Font library not loaded (offline?).')] }); return; }
         let f; try { f = opentype.parse(c.buf); } catch (e) { c.groups.push({ name: 'Font', rows: [row('Note', 'Could not parse font: ' + e.message)] }); return; }
         const n = f.names || {}; const en = o => o ? (o.en || Object.values(o)[0] || '') : '';
@@ -519,7 +559,7 @@
     }
 
     function parsePE(c) {
-        const b = c.bytes, dv = new DataView(c.buf);
+        const b = c.bytes, dv = new DataView(c.bytes.buffer);
         try {
             const peOff = dv.getUint32(0x3C, true);
             if (!(b[peOff] === 0x50 && b[peOff+1] === 0x45 && b[peOff+2] === 0 && b[peOff+3] === 0)) throw new Error('no PE header');
@@ -542,7 +582,7 @@
         const cls = b[4] === 1 ? '32-bit' : b[4] === 2 ? '64-bit' : '?';
         const endian = b[5] === 1 ? 'little-endian' : 'big-endian';
         const types = { 1: 'Relocatable', 2: 'Executable', 3: 'Shared object (.so)', 4: 'Core dump' };
-        const le = b[5] === 1; const dv = new DataView(c.buf);
+        const le = b[5] === 1; const dv = new DataView(c.bytes.buffer);
         const etype = dv.getUint16(16, le); const machine = dv.getUint16(18, le);
         const machs = { 0x3e: 'x86-64', 0x03: 'x86', 0xb7: 'AArch64', 0x28: 'ARM', 0xf3: 'RISC-V' };
         c.groups.push({ name: 'ELF Header', rows: [
@@ -552,8 +592,8 @@
     }
 
     function parseVideo(c) {
-        // list top-level MP4/MOV atoms (best-effort)
-        const b = c.bytes, dv = new DataView(c.buf); const atoms = [];
+        // list top-level MP4/MOV atoms (best-effort) from the head slice only
+        const b = c.bytes, dv = new DataView(c.bytes.buffer); const atoms = [];
         if (ascii(b, 4, 4) === 'ftyp') {
             let off = 0;
             for (let i = 0; i < 20 && off + 8 <= b.length; i++) {
@@ -608,6 +648,7 @@
         if (current.det.id === 'jpeg' && !current._gpsAdded) { current._gpsAdded = true; }
 
         renderAdvisory();
+        renderReco();
         renderGroups();
     }
 
@@ -616,6 +657,75 @@
         if (!a) { slot.innerHTML = ''; return; }
         const ico = a.level === 'danger' ? '⛔' : a.level === 'warn' ? '⚠️' : 'ℹ️';
         slot.innerHTML = `<div class="advisory ${a.level}"><span class="ad-ico">${ico}</span><div>${a.html}</div></div>`;
+    }
+
+    // ---------- SOFTWARE RECOMMENDATIONS ----------
+    // Which apps best open / edit each type. Keyed by detected format id, with
+    // extension overrides for the ZIP-family document formats.
+    const APP = {
+        keepassxc: { name: 'KeePassXC', url: 'https://keepassxc.org' },
+        weasis:    { name: 'Weasis', url: 'https://weasis.org' },
+        dicomedit: { name: 'Carino DICOM Editor', url: 'https://dicom.carino.systems' },
+        vlc:       { name: 'VLC', url: 'https://www.videolan.org' },
+        mpv:       { name: 'mpv', url: 'https://mpv.io' },
+        audacity:  { name: 'Audacity', url: 'https://www.audacityteam.org' },
+        kid3:      { name: 'Kid3', url: 'https://kid3.kde.org' },
+        mp3tag:    { name: 'Mp3tag', url: 'https://www.mp3tag.de' },
+        gimp:      { name: 'GIMP', url: 'https://www.gimp.org' },
+        xnview:    { name: 'XnView MP', url: 'https://www.xnview.com' },
+        exiftool:  { name: 'ExifTool', url: 'https://exiftool.org' },
+        okular:    { name: 'Okular', url: 'https://okular.kde.org' },
+        libre:     { name: 'LibreOffice', url: 'https://www.libreoffice.org' },
+        sevenzip:  { name: '7-Zip', url: 'https://www.7-zip.org' },
+        peazip:    { name: 'PeaZip', url: 'https://peazip.github.io' },
+        fontforge: { name: 'FontForge', url: 'https://fontforge.org' },
+        sqlitebrowser: { name: 'DB Browser for SQLite', url: 'https://sqlitebrowser.org' },
+        ghidra:    { name: 'Ghidra', url: 'https://ghidra-sre.org' },
+        die:       { name: 'Detect It Easy', url: 'https://github.com/horsicq/Detect-It-Easy' },
+        calibre:   { name: 'Calibre', url: 'https://calibre-ebook.com' },
+        jadx:      { name: 'jadx', url: 'https://github.com/skylot/jadx' },
+        jdgui:     { name: 'JD-GUI', url: 'https://java-decompiler.github.io' },
+        gnupg:     { name: 'GnuPG / Kleopatra', url: 'https://gnupg.org' },
+        kse:       { name: 'KeyStore Explorer', url: 'https://keystore-explorer.org' },
+        openssl:   { name: 'OpenSSL', url: 'https://www.openssl.org' },
+        mkvtoolnix:{ name: 'MKVToolNix', url: 'https://mkvtoolnix.download' },
+        imhex:     { name: 'ImHex', url: 'https://imhex.werwolv.net' },
+        vscode:    { name: 'VS Code', url: 'https://code.visualstudio.com' },
+        inkscape:  { name: 'Inkscape', url: 'https://inkscape.org' },
+        blender:   { name: 'Blender', url: 'https://www.blender.org' },
+        wabt:      { name: 'WABT', url: 'https://github.com/WebAssembly/wabt' }
+    };
+    const RECO_BY_ID = {
+        jpeg:['gimp','xnview','exiftool'], png:['gimp','xnview','exiftool'], gif:['gimp','xnview'],
+        tiff:['gimp','xnview','exiftool'], webp:['gimp','xnview'], heic:['gimp','xnview','exiftool'], bmp:['gimp','xnview'],
+        pdf:['okular','libre','exiftool'],
+        mp3:['kid3','mp3tag','vlc'], flac:['kid3','audacity','vlc'], ogg:['kid3','vlc'], wav:['audacity','vlc'],
+        mp4:['vlc','mpv','exiftool'], avi:['vlc','mpv'], mkv:['vlc','mkvtoolnix','mpv'],
+        zip:['sevenzip','peazip'], gz:['sevenzip','peazip'], '7z':['sevenzip','peazip'], rar:['sevenzip','peazip'], tar:['sevenzip','peazip'],
+        font:['fontforge','exiftool'],
+        cert:['kse','openssl'], pem:['kse','openssl'], key:['kse','openssl'], pgp:['gnupg'], kdbx:['keepassxc'],
+        pe:['die','ghidra'], elf:['ghidra','die'], macho:['ghidra','die'], class:['jdgui','ghidra'], wasm:['wabt'],
+        sqlite:['sqlitebrowser'], dicom:['dicomedit','weasis'], text:['vscode'], bin:['die','imhex','exiftool']
+    };
+    const RECO_BY_EXT = {
+        docx:['libre'], xlsx:['libre'], pptx:['libre'], odt:['libre'], ods:['libre'], odp:['libre'],
+        epub:['calibre'], apk:['jadx'], jar:['jdgui'], svg:['inkscape','gimp'], ico:['gimp'],
+        kdbx:['keepassxc'], crt:['kse','openssl'], cer:['kse','openssl'], der:['kse','openssl'],
+        p12:['kse','openssl'], pfx:['kse','openssl'], stl:['blender'], obj:['blender'], glb:['blender'], gltf:['blender']
+    };
+    function recommendFor(det, name) {
+        const keys = RECO_BY_EXT[ext(name)] || RECO_BY_ID[det.id] || ['exiftool'];
+        const seen = new Set(), out = [];
+        keys.forEach(k => { if (APP[k] && !seen.has(k)) { seen.add(k); out.push(APP[k]); } });
+        return out;
+    }
+    function renderReco() {
+        const slot = $('#recoSlot'); if (!slot) return;
+        const apps = recommendFor(current.det, current.file.name);
+        if (!apps.length) { slot.innerHTML = ''; return; }
+        slot.innerHTML = `<div class="reco"><span class="reco-lbl">Open / edit with</span>`
+            + apps.map(a => `<a class="reco-chip" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)} ↗</a>`).join('')
+            + `</div>`;
     }
 
     function renderGroups() {
@@ -638,7 +748,8 @@
                         <td class="v"><input value="${esc(val)}" data-g="${gi}" data-r="${ri}" oninput="stageEdit(this)"></td>
                         <td class="row-actions"><button class="icon-x" title="Clear" onclick="clearField(${gi},${ri})">⌫</button></td>`;
                 } else {
-                    tr.innerHTML = `<td class="k">${esc(r.k)}</td><td class="v">${esc(val)}</td><td class="row-actions"></td>`;
+                    const cell = r.html != null ? r.html : esc(val);
+                    tr.innerHTML = `<td class="k">${esc(r.k)}</td><td class="v">${cell}</td><td class="row-actions"></td>`;
                 }
                 tbl.appendChild(tr);
             });
@@ -698,8 +809,8 @@
         try {
             const id = current.det.id;
             if (id === 'pdf') return await writePDF();
-            if (id === 'jpeg') return writeJPEG();
-            if (id === 'mp3') return writeMP3();
+            if (id === 'jpeg') return await writeJPEG();
+            if (id === 'mp3') return await writeMP3();
         } catch (e) { toast('Write failed: ' + e.message, true); console.error(e); }
     }
 
@@ -715,10 +826,11 @@
         triggerDownload(new Blob([bytes], { type: 'application/pdf' }), rename(current.file.name, '-meta'));
     }
 
-    function writeJPEG() {
+    async function writeJPEG() {
         if (typeof piexif === 'undefined') throw new Error('EXIF library unavailable');
         const v = collectEdits();
-        const bin = uint8ToBinary(current.bytes);
+        const full = current.buf ? new Uint8Array(current.buf) : new Uint8Array(await current.file.arrayBuffer());
+        const bin = uint8ToBinary(full);
         let exifObj; try { exifObj = piexif.load(bin); } catch (e) { exifObj = { '0th': {}, 'Exif': {}, 'GPS': {} }; }
         const Z = exifObj['0th'] = exifObj['0th'] || {}, E = exifObj['Exif'] = exifObj['Exif'] || {};
         const setZ = (tag, val) => { if (val != null && val !== '') Z[tag] = val; else delete Z[tag]; };
@@ -735,10 +847,10 @@
         triggerDownload(new Blob([binaryToUint8(newBin)], { type: 'image/jpeg' }), rename(current.file.name, '-meta'));
     }
 
-    function writeMP3() {
+    async function writeMP3() {
         if (typeof ID3Writer === 'undefined') throw new Error('ID3 library unavailable');
         const v = collectEdits();
-        const w = new ID3Writer(current.buf);
+        const w = new ID3Writer(current.buf || await current.file.arrayBuffer());
         const S = (frame, val) => { if (val != null && val !== '') try { w.setFrame(frame, val); } catch (e) {} };
         S('TIT2', v.title); S('TPE1', v.artist ? [v.artist] : null); S('TALB', v.album);
         if (v.year && !isNaN(+v.year)) S('TYER', +v.year);
