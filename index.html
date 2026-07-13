@@ -178,9 +178,10 @@
                 <div class="section-title">Actions</div>
                 <div style="display:flex; flex-direction:column; gap:8px;">
                     <button class="btn" id="addFieldBtn" onclick="addCustomField()" disabled>＋ Add / Create Field</button>
-                    <div class="btn-row">
-                        <button class="btn" onclick="exportMeta('json')">Export JSON</button>
-                        <button class="btn" onclick="exportMeta('csv')">Export CSV</button>
+                    <div class="btn-row three">
+                        <button class="btn" onclick="exportMeta('json')">JSON</button>
+                        <button class="btn" onclick="exportMeta('csv')">CSV</button>
+                        <button class="btn" onclick="printMeta()">🖨 PDF</button>
                     </div>
                     <button class="btn primary" id="downloadBtn" onclick="downloadModified()" disabled>⬇ Download Modified File</button>
                     <p class="hint" id="writeHint"></p>
@@ -887,6 +888,95 @@
         }
         triggerDownload(blob, fn);
     }
+
+    // ---------- PRINT / PDF ----------
+    // Renders the overview (file card + every metadata group, staged edits applied)
+    // into a branded report and opens the browser print dialog (→ Save as PDF).
+    // Light "paper" palette + logo header borrowed from the General Quotation
+    // document so every Carino export looks like one family. No library needed;
+    // works offline for any loaded file, editable or not.
+    let CARINO_LOGO_URI = '';
+    (function loadCarinoLogo() {
+        try {
+            fetch('logo.webp').then(r => r.ok ? r.blob() : null).then(b => {
+                if (!b) return; const fr = new FileReader();
+                fr.onload = () => { CARINO_LOGO_URI = fr.result; }; fr.readAsDataURL(b);
+            }).catch(() => {});
+        } catch (e) {}
+    })();
+
+    function carinoBrandedPrint(opts) {
+        const logo = CARINO_LOGO_URI ? `<img class="ph-logo" src="${CARINO_LOGO_URI}" alt="Carino Systems">` : '';
+        const metaHtml = opts.meta ? `<div class="ph-meta">${opts.meta}</div>` : '';
+        const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(opts.title)}</title><style>
+          :root{ --primary:#b45309; --ink:#1f2937; --muted:#6b7280; --border:#e5e7eb; }
+          html{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+          *{box-sizing:border-box;} body{font:12px/1.5 'IBM Plex Sans',-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);margin:24px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+          .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:2px solid var(--primary);padding-bottom:16px;margin-bottom:20px;}
+          .ph h1{font-family:'Red Hat Display','IBM Plex Sans',sans-serif;font-weight:900;font-size:20px;margin:0;color:var(--primary);}
+          .ph-date{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--muted);margin:6px 0 0;}
+          .ph-fmt{display:inline-block;margin-top:6px;font-size:11px;color:var(--primary);font-weight:600;}
+          .ph-r{text-align:right;flex-shrink:0;} .ph-logo{height:52px;width:auto;display:inline-block;}
+          .ph-meta{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5;}
+          .adv{border:1px solid var(--border);border-left-width:4px;padding:8px 12px;margin:0 0 16px;font-size:11px;border-radius:4px;}
+          .adv-info{border-left-color:#2b8fce;background:#eff8ff;} .adv-warn{border-left-color:#d99000;background:#fff8e8;} .adv-danger{border-left-color:#cc2b2b;background:#fdeeee;}
+          section{margin-bottom:16px;break-inside:avoid;}
+          h2{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--primary);border-bottom:1px solid var(--border);padding-bottom:5px;margin:0 0 8px;}
+          table{width:100%;border-collapse:collapse;}
+          th{text-align:left;font-weight:600;color:#374151;width:34%;vertical-align:top;padding:3px 10px 3px 0;font-size:11px;word-break:break-word;}
+          td{vertical-align:top;padding:3px 0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;word-break:break-word;color:var(--ink);}
+          td.empty{color:#b8bcc4;} .ed{font-family:sans-serif;font-size:9px;color:#127a2f;border:1px solid #9ad3aa;border-radius:3px;padding:0 4px;margin-left:4px;}
+          footer{margin-top:22px;padding-top:8px;border-top:1px solid var(--border);font-size:10px;color:#9aa0a8;}
+          @media print{body{margin:0;} @page{margin:15mm;}}
+        </style></head><body>
+          <header class="ph"><div class="ph-l"><h1>${esc(opts.title)}</h1>${opts.subtitle ? `<p class="ph-date">${esc(opts.subtitle)}</p>` : ''}${opts.fmt ? `<div class="ph-fmt">${esc(opts.fmt)}</div>` : ''}</div>
+            <div class="ph-r">${logo}${metaHtml}</div></header>
+          ${opts.body}
+          <footer>Generated locally by Carino Systems — nothing left this device.</footer>
+        </body></html>`;
+
+        const ifr = document.createElement('iframe');
+        ifr.setAttribute('aria-hidden', 'true');
+        ifr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+        document.body.appendChild(ifr);
+        const w = ifr.contentWindow, dd = w.document;
+        dd.open(); dd.write(doc); dd.close();
+        const cleanup = () => setTimeout(() => { try { ifr.remove(); } catch (e) {} }, 500);
+        w.onafterprint = cleanup;
+        setTimeout(() => { try { w.focus(); w.print(); } catch (e) { cleanup(); } }, 60);
+    }
+
+    function printMeta() {
+        if (!current) { toast('Open a file first', true); return; }
+        const d = current.det, f = current.file;
+        const now = new Date();
+        const p2 = n => String(n).padStart(2, '0');
+        const stamp = now.getFullYear() + '-' + p2(now.getMonth()+1) + '-' + p2(now.getDate()) + ' ' + p2(now.getHours()) + ':' + p2(now.getMinutes());
+
+        const sections = current.groups.map((g, gi) => {
+            const rows = g.rows.filter(r => !r._removed).map((r, ri) => {
+                const idx = g.rows.indexOf(r);
+                const staged = current.edits[stageKey(gi, idx)];
+                const val = staged != null ? staged : r.v;
+                const edited = staged != null ? '<span class="ed">edited</span>' : '';
+                return `<tr><th>${esc(r.k)}</th><td${val ? '' : ' class="empty"'}>${val ? esc(val) : '—'}${edited}</td></tr>`;
+            }).join('');
+            if (!rows) return '';
+            return `<section><h2>${esc(g.name)}</h2><table>${rows}</table></section>`;
+        }).join('');
+
+        const advisory = d.advisory
+            ? `<div class="adv adv-${esc(d.advisory.level)}">${d.advisory.html}</div>` : '';
+
+        carinoBrandedPrint({
+            title: 'File Metadata Overview',
+            subtitle: `${f.name} · ${fmtSize(f.size)} · generated ${stamp}`,
+            fmt: `${d.icon} ${d.label} — ${d.editable ? 'editable' : 'read-only'}`,
+            meta: 'Carino Metadata Editor',
+            body: advisory + sections
+        });
+    }
+    window.printMeta = printMeta;
 
     // ---------- WIRING ----------
     function initLegend() {
