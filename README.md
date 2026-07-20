@@ -27,3 +27,7 @@ Everything runs in your browser. Files are **never uploaded**. Cryptographic sec
 ## Tech
 
 Single self-contained `index.html`. Parsing libraries loaded from CDN and every call is guarded, so core detection + generic extraction still work offline. Uses [exifr](https://github.com/MikeKovarik/exifr) + [piexifjs](https://github.com/hMatoba/piexifjs) (images), [pdf-lib](https://pdf-lib.js.org/) (PDF), [jsmediatags](https://github.com/aadsm/jsmediatags) + [browser-id3-writer](https://github.com/egoroof/browser-id3-writer) (MP3), [JSZip](https://stuk.github.io/jszip/) (archives/Office), [opentype.js](https://opentype.js.org/) (fonts) and [node-forge](https://github.com/digitalbazaar/forge) (certificates). Shares the Carino navbar/clock convention and the [Carino Branding](https://branding.carino.systems) design system.
+
+## License
+
+Licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later) — see [LICENSE](LICENSE). Copyright © 2026 Miguel Carino.
