@@ -6,36 +6,36 @@
     <link rel="icon" type="image/webp" href="logo.webp">
     <title>Metadata Editor — Carino Systems</title>
 
-    <!-- Format parsers (loaded lazily-tolerant: every use is typeof-guarded, so
-         the core detector + generic extractor still work if a CDN is blocked). -->
-    <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsmediatags@3.9.5/dist/jsmediatags.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/browser-id3-writer@4.4.0/dist/browser-id3-writer.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js" defer></script>
+    <!-- Format parsers (vendored locally — no CDN; every use is typeof-guarded, so
+         the core detector + generic extractor still work if one fails to load). -->
+    <script src="vendor/exifr-full.umd.js" defer></script>
+    <script src="vendor/piexif.js" defer></script>
+    <script src="vendor/pdf-lib.min.js" defer></script>
+    <script src="vendor/jsmediatags.min.js" defer></script>
+    <script src="vendor/browser-id3-writer.min.js" defer></script>
+    <script src="vendor/jszip.min.js" defer></script>
+    <script src="vendor/opentype.min.js" defer></script>
+    <script src="vendor/forge.min.js" defer></script>
 
     <link rel="stylesheet" href="fonts/carino-fonts.css">
 
     <style>
         :root {
             --accent: #eab308;
-            --accent-faint: rgba(234,179,8,0.06);
+            --accent-faint: rgba(234,179,8,0.05);
             --accent-glow: rgba(234,179,8,0.15);
             --primary-hover: #fbbf24;
             --bg-body: #050505;
             --bg-surface: #0b0b0b;
             --bg-elev: #0d0d0d;
-            --bg-card: #0f0f0f;
-            --text-main: #f5f5f5;
-            --text-muted: #8a8a8a;
+            --bg-card: #0d0d0d;
+            --text-main: #fff;
+            --text-muted: #a3a3a3;
             --text-dim: #666;
             --border: #262626;
             --success: #22c55e;
             --danger: #ef4444;
-            --warning: #f59e0b;
+            --warning: #eab308;
             --info: #38bdf8;
             --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
             --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -92,7 +92,7 @@
         .advisory a { font-weight: 700; text-decoration: none; }
         .advisory.info { background: rgba(56,189,248,0.06); border-color: rgba(56,189,248,0.4); color: #bae6fd; }
         .advisory.info a { color: var(--info); }
-        .advisory.warn { background: rgba(245,158,11,0.07); border-color: rgba(245,158,11,0.45); color: #fde68a; }
+        .advisory.warn { background: rgba(234,179,8,0.07); border-color: rgba(234,179,8,0.45); color: #fde68a; }
         .advisory.warn a { color: var(--warning); }
         .advisory.danger { background: rgba(239,68,68,0.07); border-color: rgba(239,68,68,0.45); color: #fecaca; }
         .advisory.danger a { color: var(--danger); }
@@ -219,7 +219,7 @@
     'use strict';
     // ============================================================
     //  Metadata Editor — client-side format detection + parsing.
-    //  current: { file, bytes:Uint8Array, buf:ArrayBuffer, det, groups, edits:{}, added:[], removed:Set }
+    //  current: { file, bytes:Uint8Array, buf:ArrayBuffer, det, groups, edits:{} }
     // ============================================================
     let current = null;
 
@@ -356,7 +356,7 @@
             const det = detectFormat(bytes, file.name);
             // Full buffer only for reasonably-sized files; larger ones parse on demand.
             const buf = file.size <= PARSE_FULL_LIMIT ? await file.arrayBuffer() : null;
-            current = { file, bytes, buf, det, groups: [], edits: {}, added: [], removed: new Set() };
+            current = { file, bytes, buf, det, groups: [], edits: {} };
 
             // Universal "File" group — SHA is deferred for big files (button).
             const shaRow = file.size <= SHA_AUTO_LIMIT
@@ -644,9 +644,6 @@
             : 'Edit fields below or add new ones, then download the rewritten file.';
         else hint.textContent = 'This format is extract-only in the browser — export JSON/CSV to save the metadata.';
 
-        // GPS strip helper for JPEG
-        if (current.det.id === 'jpeg' && !current._gpsAdded) { current._gpsAdded = true; }
-
         renderAdvisory();
         renderReco();
         renderGroups();
@@ -733,7 +730,7 @@
         const host = $('#groups'); host.innerHTML = '';
         let shown = 0;
         current.groups.forEach((g, gi) => {
-            const rows = g.rows.filter(r => !r._removed && (!q || (r.k + ' ' + r.v).toLowerCase().includes(q)));
+            const rows = g.rows.filter(r => !q || (r.k + ' ' + r.v).toLowerCase().includes(q));
             if (!rows.length) return;
             const wrap = document.createElement('div'); wrap.className = 'meta-group';
             wrap.innerHTML = `<h3>${esc(g.name)} <span class="gcount">${rows.length}</span></h3>`;
@@ -841,7 +838,7 @@
         setZ(piexif.ImageIFD.Make, v.Make);
         setZ(piexif.ImageIFD.Model, v.Model);
         if (v.DateTimeOriginal) E[piexif.ExifIFD.DateTimeOriginal] = v.DateTimeOriginal;
-        if (v.__stripGps === 'yes' || v.StripGPS === 'yes') exifObj['GPS'] = {};
+        if (v.StripGPS === 'yes') exifObj['GPS'] = {};
         const exifStr = piexif.dump(exifObj);
         const newBin = piexif.insert(exifStr, bin);
         triggerDownload(new Blob([binaryToUint8(newBin)], { type: 'image/jpeg' }), rename(current.file.name, '-meta'));
@@ -953,7 +950,7 @@
         const stamp = now.getFullYear() + '-' + p2(now.getMonth()+1) + '-' + p2(now.getDate()) + ' ' + p2(now.getHours()) + ':' + p2(now.getMinutes());
 
         const sections = current.groups.map((g, gi) => {
-            const rows = g.rows.filter(r => !r._removed).map((r, ri) => {
+            const rows = g.rows.map((r, ri) => {
                 const idx = g.rows.indexOf(r);
                 const staged = current.edits[stageKey(gi, idx)];
                 const val = staged != null ? staged : r.v;
