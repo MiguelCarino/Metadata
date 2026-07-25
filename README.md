@@ -1,4 +1,4 @@
-# Metadata Editor
+# Metadata
 
 A client-side, offline-first metadata tool for **almost any file** — extract, edit and create metadata without anything ever leaving your device. Part of the [Carino Systems](https://carino.systems) toolset; a general-purpose sibling to the [DICOM Tag Editor](https://dicom.carino.systems).
 
