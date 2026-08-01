@@ -154,40 +154,40 @@
 
     <div class="nav-actions" data-carino-actions>
         <input type="file" id="fileInput" hidden>
-        <button class="open-btn" onclick="document.getElementById('fileInput').click()">＋ Open File</button>
+        <button class="open-btn" data-i18n onclick="document.getElementById('fileInput').click()">＋ Open File</button>
     </div>
 
     <div class="main-container">
         <aside class="sidebar">
             <div>
-                <div class="section-title">Source File</div>
+                <div class="section-title" data-i18n>Source File</div>
                 <div class="dropzone" id="dropzone">
                     <div class="dz-icon">📄</div>
-                    <strong>Drop a file</strong>
-                    <p>or click to browse — nothing leaves your device</p>
+                    <strong data-i18n>Drop a file</strong>
+                    <p data-i18n>or click to browse — nothing leaves your device</p>
                 </div>
             </div>
 
             <div id="fileCardWrap" style="display:none;">
-                <div class="section-title">Details</div>
+                <div class="section-title" data-i18n>Details</div>
                 <div class="file-card" id="fileCard"></div>
             </div>
 
             <div id="actionsWrap" style="display:none;">
-                <div class="section-title">Actions</div>
+                <div class="section-title" data-i18n>Actions</div>
                 <div style="display:flex; flex-direction:column; gap:8px;">
-                    <button class="btn" id="addFieldBtn" onclick="addCustomField()" disabled>＋ Add / Create Field</button>
+                    <button class="btn" id="addFieldBtn" data-i18n onclick="addCustomField()" disabled>＋ Add / Create Field</button>
                     <div class="btn-row three">
                         <button class="btn" onclick="exportMeta('json')">JSON</button>
                         <button class="btn" onclick="exportMeta('csv')">CSV</button>
                         <button class="btn" onclick="printMeta()">🖨 PDF</button>
                     </div>
-                    <button class="btn primary" id="downloadBtn" onclick="downloadModified()" disabled>⬇ Download Modified File</button>
+                    <button class="btn primary" id="downloadBtn" data-i18n onclick="downloadModified()" disabled>⬇ Download Modified File</button>
                     <p class="hint" id="writeHint"></p>
                 </div>
             </div>
 
-            <div class="hint" style="margin-top:auto;">
+            <div class="hint" style="margin-top:auto;" data-i18n>
                 All parsing runs locally in your browser. Files are never uploaded.
             </div>
         </aside>
@@ -195,8 +195,8 @@
         <main class="content" id="content">
             <div class="empty" id="emptyState">
                 <div style="font-size:2.4rem;">🗂️</div>
-                <h1>Metadata Editor</h1>
-                <p>Extract, edit and create metadata for almost any file — images, PDFs, audio, video, archives, fonts, certificates and binaries. Drop a file to begin.</p>
+                <h1 data-i18n>Metadata Editor</h1>
+                <p data-i18n>Extract, edit and create metadata for almost any file — images, PDFs, audio, video, archives, fonts, certificates and binaries. Drop a file to begin.</p>
                 <div class="fmt-legend" id="fmtLegend"></div>
             </div>
 
@@ -206,8 +206,8 @@
                 <div class="search-box"><input type="text" id="metaSearch" placeholder="Search keys & values…" oninput="renderGroups()"></div>
                 <div id="groups"></div>
                 <div class="dirty-bar" id="dirtyBar">
-                    <span id="dirtyText">Unsaved edits</span>
-                    <button class="btn primary" onclick="downloadModified()">⬇ Save &amp; Download</button>
+                    <span id="dirtyText" data-i18n>Unsaved edits</span>
+                    <button class="btn primary" data-i18n onclick="downloadModified()">⬇ Save &amp; Download</button>
                 </div>
             </div>
         </main>
@@ -248,12 +248,12 @@
         // DICOM — 'DICM' at byte 128
         if ((b.length > 132 && ascii(b, 128, 4) === 'DICM') || e === 'dcm' || e === 'dicom')
             return mk('dicom', 'DICOM Medical Image', '🩻', 'medical', 'application/dicom', false,
-                { level: 'info', html: 'This is a <b>DICOM</b> medical-imaging file. This tool reads it as a generic binary — for full tag editing and de-identification use the dedicated <a href="https://dicom.carino.systems" target="_blank" rel="noopener">DICOM Tag Editor</a>.' });
+                { level: 'info', html: t('This is a <b>DICOM</b> medical-imaging file. This tool reads it as a generic binary — for full tag editing and de-identification use the dedicated <a href="https://dicom.carino.systems" target="_blank" rel="noopener">DICOM Tag Editor</a>.') });
 
         // Windows shortcut
         if (e === 'lnk' || S([0x4C,0x00,0x00,0x00,0x01,0x14,0x02,0x00]))
             return mk('lnk', 'Windows Shortcut', '🔗', 'system', 'application/x-ms-shortcut', false,
-                { level: 'info', html: 'This is a <b>Windows shortcut (.lnk)</b> — a pointer to another file or program, not a document. Its "metadata" is mostly the target path and icon reference.' });
+                { level: 'info', html: t('This is a <b>Windows shortcut (.lnk)</b> — a pointer to another file or program, not a document. Its "metadata" is mostly the target path and icon reference.') });
 
         // Images
         if (S([0xFF,0xD8,0xFF])) return mk('jpeg', 'JPEG Image', '🖼️', 'image', 'image/jpeg', true);
@@ -292,19 +292,19 @@
             return mk('zip', 'ZIP Archive', '🗜️', 'archive', 'application/zip', false);
         }
         if (S([0x1F,0x8B])) return mk('gz', 'GZIP Archive', '🗜️', 'archive', 'application/gzip', false,
-            { level: 'info', html: 'GZIP stream — contains one compressed file. Only the outer header is readable here.' });
+            { level: 'info', html: t('GZIP stream — contains one compressed file. Only the outer header is readable here.') });
         if (S([0x37,0x7A,0xBC,0xAF,0x27,0x1C])) return mk('7z', '7-Zip Archive', '🗜️', 'archive', 'application/x-7z-compressed', false);
         if (S([0x52,0x61,0x72,0x21,0x1A,0x07])) return mk('rar', 'RAR Archive', '🗜️', 'archive', 'application/vnd.rar', false);
         if (A('ustar', 257)) return mk('tar', 'TAR Archive', '🗜️', 'archive', 'application/x-tar', false);
 
         // Executables & binaries
         if (S([0x4D,0x5A])) return mk('pe', 'Windows Executable (PE)', '⚙️', 'binary', 'application/vnd.microsoft.portable-executable', false,
-            { level: 'warn', html: '<b>Executable binary.</b> Metadata is read from the PE header only — never run executables from untrusted sources.' });
+            { level: 'warn', html: t('<b>Executable binary.</b> Metadata is read from the PE header only — never run executables from untrusted sources.') });
         if (S([0x7F,0x45,0x4C,0x46])) return mk('elf', 'ELF Binary (Linux)', '⚙️', 'binary', 'application/x-elf', false,
-            { level: 'warn', html: '<b>ELF executable / library.</b> Header metadata only — treat untrusted binaries with caution.' });
+            { level: 'warn', html: t('<b>ELF executable / library.</b> Header metadata only — treat untrusted binaries with caution.') });
         if (S([0xCA,0xFE,0xBA,0xBE])) return mk('class', 'Java Class / Mach-O Fat', '⚙️', 'binary', 'application/java-vm', false);
         if (S([0xFE,0xED,0xFA,0xCE]) || S([0xFE,0xED,0xFA,0xCF]) || S([0xCF,0xFA,0xED,0xFE])) return mk('macho', 'Mach-O Binary (macOS)', '⚙️', 'binary', 'application/x-mach-binary', false,
-            { level: 'warn', html: '<b>Mach-O executable.</b> Header metadata only.' });
+            { level: 'warn', html: t('<b>Mach-O executable.</b> Header metadata only.') });
         if (S([0x00,0x61,0x73,0x6D])) return mk('wasm', 'WebAssembly Module', '⚙️', 'binary', 'application/wasm', false);
 
         // Certificates / keys (mostly text)
@@ -312,7 +312,7 @@
         if (head.indexOf('-----BEGIN') === 0) {
             if (/PRIVATE KEY/.test(head) || e === 'key')
                 return mk('key', 'Private Key (PEM)', '🔑', 'crypto', 'application/x-pem-file', false,
-                    { level: 'danger', html: '<b>Private key material.</b> Kept entirely local — never share this file. Only non-secret properties (type, size) are shown; the secret is not extracted.' });
+                    { level: 'danger', html: t('<b>Private key material.</b> Kept entirely local — never share this file. Only non-secret properties (type, size) are shown; the secret is not extracted.') });
             if (/CERTIFICATE/.test(head))
                 return mk('cert', 'X.509 Certificate (PEM)', '📜', 'crypto', 'application/x-pem-file', false);
             return mk('pem', 'PEM Block', '🔑', 'crypto', 'application/x-pem-file', false);
@@ -321,15 +321,15 @@
             return mk('cert', 'X.509 Certificate (DER)', '📜', 'crypto', 'application/x-x509-ca-cert', false);
         if (['p12','pfx'].includes(e))
             return mk('key', 'PKCS#12 Keystore', '🔑', 'crypto', 'application/x-pkcs12', false,
-                { level: 'danger', html: '<b>PKCS#12 keystore</b> — usually holds a private key. Handle with care; parsed locally only.' });
+                { level: 'danger', html: t('<b>PKCS#12 keystore</b> — usually holds a private key. Handle with care; parsed locally only.') });
         if (['gpg','pgp','asc'].includes(e))
             return mk('pgp', 'PGP / GPG Data', '🔑', 'crypto', 'application/pgp', false,
-                { level: 'warn', html: 'PGP/GPG data — may contain keys or an encrypted message. Parsed locally.' });
+                { level: 'warn', html: t('PGP/GPG data — may contain keys or an encrypted message. Parsed locally.') });
 
         // KeePass password database
         if (e === 'kdbx' || S([0x03,0xD9,0xA2,0x9A]))
             return mk('kdbx', 'KeePass Password Database', '🔐', 'crypto', 'application/x-keepass2', false,
-                { level: 'info', html: 'Encrypted <b>KeePass</b> database — its entries are protected by your master key and cannot be read here. Open it in a password manager.' });
+                { level: 'info', html: t('Encrypted <b>KeePass</b> database — its entries are protected by your master key and cannot be read here. Open it in a password manager.') });
 
         // SQLite
         if (A('SQLite format 3')) return mk('sqlite', 'SQLite Database', '🗃️', 'data', 'application/vnd.sqlite3', false);
@@ -339,7 +339,7 @@
             return mk('text', 'Text / Source File', '📃', 'text', 'text/plain', false);
 
         return mk('bin', 'Unknown / Binary', '❔', 'binary', 'application/octet-stream', false,
-            { level: 'info', html: 'Unrecognized format — showing generic file information and a byte signature. The magic number below may help identify it.' });
+            { level: 'info', html: t('Unrecognized format — showing generic file information and a byte signature. The magic number below may help identify it.') });
     }
 
     // ---------- LOAD ----------
@@ -361,7 +361,7 @@
             // Universal "File" group — SHA is deferred for big files (button).
             const shaRow = file.size <= SHA_AUTO_LIMIT
                 ? row('SHA-256', await sha256(buf))
-                : row('SHA-256', '', { key: '__sha', html: `<button class="btn mini" onclick="computeSha()">Compute — ${fmtSize(file.size)}</button>` });
+                : row('SHA-256', '', { key: '__sha', html: `<button class="btn mini" onclick="computeSha()">${t('Compute')} — ${fmtSize(file.size)}</button>` });
             current.groups.push({ name: 'File', rows: [
                 row('Name', file.name), row('Size', fmtSize(file.size) + ` (${file.size.toLocaleString()} bytes)`),
                 row('Detected type', det.label), row('MIME (guess)', det.mime),
@@ -375,20 +375,20 @@
             catch (err) { console.warn('parser error', err); current.groups.push({ name: 'Parser', rows: [row('Note', 'Could not fully parse this format: ' + err.message)] }); }
 
             renderAll();
-        } catch (err) { toast('Failed to read file: ' + err.message, true); console.error(err); }
+        } catch (err) { toast(t('Failed to read file:') + ' ' + err.message, true); console.error(err); }
     }
 
     // On-demand SHA-256 for large files (reads the file transiently; does not cache it).
     async function computeSha() {
         const shaRow = current.groups[0].rows.find(r => r.key === '__sha');
         if (!shaRow) return;
-        shaRow.html = '<span class="hint">Hashing…</span>'; renderGroups();
+        shaRow.html = '<span class="hint">' + t('Hashing…') + '</span>'; renderGroups();
         try {
             const buf = current.buf || await current.file.arrayBuffer();
             shaRow.v = await sha256(buf);
         } catch (e) { shaRow.v = '(failed: ' + e.message + ')'; }
         shaRow.html = null; shaRow.key = null;
-        renderGroups(); toast('SHA-256 computed');
+        renderGroups(); toast(t('SHA-256 computed'));
     }
 
     function row(k, v, opts) { return Object.assign({ k, v: v == null ? '' : String(v), editable: false, key: null }, opts || {}); }
@@ -432,7 +432,7 @@
             });
             c.groups.push({ name: 'EXIF / XMP / IPTC', rows });
             if (data.latitude != null && data.longitude != null)
-                c.det.advisory = c.det.advisory || { level: 'warn', html: `This image embeds <b>GPS coordinates</b> (${(+data.latitude).toFixed(5)}, ${(+data.longitude).toFixed(5)}). Use "Strip GPS" below before sharing to protect location privacy.` };
+                c.det.advisory = c.det.advisory || { level: 'warn', html: `${t('This image embeds <b>GPS coordinates</b>')} (${(+data.latitude).toFixed(5)}, ${(+data.longitude).toFixed(5)}). ${t('Use "Strip GPS" below before sharing to protect location privacy.')}` };
         }
 
         // Editable EXIF fields (JPEG only, via piexif on save)
@@ -454,7 +454,7 @@
         if (!c.buf) { c.groups.push({ name: 'PDF', rows: [row('Note', 'File too large to parse in-browser (over ' + fmtSize(PARSE_FULL_LIMIT) + ').')] }); return; }
         if (typeof PDFLib === 'undefined') { c.groups.push({ name: 'PDF', rows: [row('Note', 'PDF library not loaded (offline?).')] }); return; }
         let doc; try { doc = await PDFLib.PDFDocument.load(c.buf, { updateMetadata: false }); }
-        catch (e) { c.groups.push({ name: 'PDF', rows: [row('Note', 'Could not open (encrypted or damaged): ' + e.message)] }); if (/encrypt/i.test(e.message)) c.det.advisory = { level: 'warn', html: 'This PDF appears to be <b>encrypted / password-protected</b>; metadata cannot be edited without the password.' }; return; }
+        catch (e) { c.groups.push({ name: 'PDF', rows: [row('Note', 'Could not open (encrypted or damaged): ' + e.message)] }); if (/encrypt/i.test(e.message)) c.det.advisory = { level: 'warn', html: t('This PDF appears to be <b>encrypted / password-protected</b>; metadata cannot be edited without the password.') }; return; }
         c.pdfDoc = doc;
         const g = v => { try { return v(); } catch (e) { return null; } };
         const d2s = d => d ? d.toISOString() : '';
@@ -543,7 +543,7 @@
                 row('Signature alg', cert.siginfo && cert.siginfo.algorithmOid), row('Version', 'v' + (cert.version + 1))
             ]});
             const exp = cert.validity.notAfter < new Date();
-            if (exp) c.det.advisory = { level: 'warn', html: 'This certificate is <b>expired</b> (valid until ' + cert.validity.notAfter.toISOString().slice(0,10) + ').' };
+            if (exp) c.det.advisory = { level: 'warn', html: t('This certificate is <b>expired</b>') + ' (' + t('valid until') + ' ' + cert.validity.notAfter.toISOString().slice(0,10) + ').' };
         } catch (e) { c.groups.push({ name: 'Certificate', rows: [row('Note', 'Could not parse certificate: ' + e.message)] }); }
     }
 
@@ -620,7 +620,7 @@
         $('#fileCardWrap').style.display = 'block';
         $('#actionsWrap').style.display = 'block';
         $('#dropzone').classList.add('success');
-        $('#dropzone').querySelector('strong').textContent = 'File loaded';
+        $('#dropzone').querySelector('strong').textContent = t('File loaded');
 
         const d = current.det;
         const editable = d.editable;
@@ -628,21 +628,21 @@
             <div class="fc-top">
                 <div class="fc-icon">${d.icon}</div>
                 <div><div class="fc-name">${esc(current.file.name)}</div>
-                <div class="fc-fmt">${esc(d.label)} <span class="badge ${editable ? 'rw' : 'ro'}">${editable ? 'Editable' : 'Read-only'}</span></div></div>
+                <div class="fc-fmt">${esc(d.label)} <span class="badge ${editable ? 'rw' : 'ro'}">${t(editable ? 'Editable' : 'Read-only')}</span></div></div>
             </div>
             <div class="fc-grid">
-                <span class="k">Size</span><span class="v">${fmtSize(current.file.size)}</span>
-                <span class="k">Kind</span><span class="v">${esc(d.kind)}</span>
-                <span class="k">Signature</span><span class="v">${hexdump(current.bytes, 6)}</span>
+                <span class="k">${t('Size')}</span><span class="v">${fmtSize(current.file.size)}</span>
+                <span class="k">${t('Kind')}</span><span class="v">${esc(d.kind)}</span>
+                <span class="k">${t('Signature')}</span><span class="v">${hexdump(current.bytes, 6)}</span>
             </div>`;
 
         $('#addFieldBtn').disabled = !editable;
         $('#downloadBtn').disabled = !editable;
         const hint = $('#writeHint');
         if (editable) hint.textContent = current.hasGps || current.det.id === 'jpeg'
-            ? 'Edit fields below or add new ones, then download. JPEG: use the Strip-GPS field to blank location.'
-            : 'Edit fields below or add new ones, then download the rewritten file.';
-        else hint.textContent = 'This format is extract-only in the browser — export JSON/CSV to save the metadata.';
+            ? t('Edit fields below or add new ones, then download. JPEG: use the Strip-GPS field to blank location.')
+            : t('Edit fields below or add new ones, then download the rewritten file.');
+        else hint.textContent = t('This format is extract-only in the browser — export JSON/CSV to save the metadata.');
 
         renderAdvisory();
         renderReco();
@@ -720,7 +720,7 @@
         const slot = $('#recoSlot'); if (!slot) return;
         const apps = recommendFor(current.det, current.file.name);
         if (!apps.length) { slot.innerHTML = ''; return; }
-        slot.innerHTML = `<div class="reco"><span class="reco-lbl">Open / edit with</span>`
+        slot.innerHTML = `<div class="reco"><span class="reco-lbl">${t('Open / edit with')}</span>`
             + apps.map(a => `<a class="reco-chip" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)} ↗</a>`).join('')
             + `</div>`;
     }
@@ -733,7 +733,7 @@
             const rows = g.rows.filter(r => !q || (r.k + ' ' + r.v).toLowerCase().includes(q));
             if (!rows.length) return;
             const wrap = document.createElement('div'); wrap.className = 'meta-group';
-            wrap.innerHTML = `<h3>${esc(g.name)} <span class="gcount">${rows.length}</span></h3>`;
+            wrap.innerHTML = `<h3>${esc(t(g.name))} <span class="gcount">${rows.length}</span></h3>`;
             const tbl = document.createElement('table'); tbl.className = 'meta';
             rows.forEach(r => {
                 const ri = g.rows.indexOf(r); shown++;
@@ -741,18 +741,18 @@
                 const staged = current.edits[stageKey(gi, ri)];
                 const val = staged != null ? staged : r.v;
                 if (r.editable) {
-                    tr.innerHTML = `<td class="k">${esc(r.k)}${staged != null ? '<span class="edit-flag">edited</span>' : ''}</td>
+                    tr.innerHTML = `<td class="k">${esc(t(r.k))}${staged != null ? '<span class="edit-flag">' + esc(t('edited')) + '</span>' : ''}</td>
                         <td class="v"><input value="${esc(val)}" data-g="${gi}" data-r="${ri}" oninput="stageEdit(this)"></td>
                         <td class="row-actions"><button class="icon-x" title="Clear" onclick="clearField(${gi},${ri})">⌫</button></td>`;
                 } else {
                     const cell = r.html != null ? r.html : esc(val);
-                    tr.innerHTML = `<td class="k">${esc(r.k)}</td><td class="v">${cell}</td><td class="row-actions"></td>`;
+                    tr.innerHTML = `<td class="k">${esc(t(r.k))}</td><td class="v">${cell}</td><td class="row-actions"></td>`;
                 }
                 tbl.appendChild(tr);
             });
             wrap.appendChild(tbl); host.appendChild(wrap);
         });
-        if (!shown) host.innerHTML = '<p class="hint">No fields match your search.</p>';
+        if (!shown) host.innerHTML = '<p class="hint">' + esc(t('No fields match your search.')) + '</p>';
         updateDirty();
     }
 
@@ -772,20 +772,20 @@
         const known = id === 'pdf' ? ['Title','Author','Subject','Keywords','Creator','Producer']
                     : id === 'jpeg' ? ['ImageDescription','Artist','Copyright','Software','Make','Model','DateTimeOriginal']
                     : ['title','artist','album','year','genre','track','comment'];
-        const key = prompt('Field name to create/set:\n(known: ' + known.join(', ') + ')');
+        const key = prompt(t('Field name to create/set:') + '\n(' + t('known:') + ' ' + known.join(', ') + ')');
         if (!key) return;
-        const val = prompt('Value for "' + key + '":') || '';
+        const val = prompt(t('Value for') + ' "' + key + '":') || '';
         // find the editable group (last one with editable rows)
         let gi = current.groups.findIndex(g => g.rows.some(r => r.editable));
         if (gi < 0) gi = current.groups.length - 1;
         current.groups[gi].rows.push(row(key, val, { editable: true, key }));
-        renderGroups(); toast('Field added — download to write it');
+        renderGroups(); toast(t('Field added — download to write it'));
     }
 
     function updateDirty() {
         const n = Object.keys(current.edits || {}).length;
         const bar = $('#dirtyBar');
-        if (n > 0) { bar.classList.add('show'); $('#dirtyText').textContent = `${n} unsaved edit${n>1?'s':''}`; }
+        if (n > 0) { bar.classList.add('show'); $('#dirtyText').textContent = `${n} ${t(n > 1 ? 'unsaved edits' : 'unsaved edit')}`; }
         else bar.classList.remove('show');
     }
 
@@ -808,7 +808,7 @@
             if (id === 'pdf') return await writePDF();
             if (id === 'jpeg') return await writeJPEG();
             if (id === 'mp3') return await writeMP3();
-        } catch (e) { toast('Write failed: ' + e.message, true); console.error(e); }
+        } catch (e) { toast(t('Write failed:') + ' ' + e.message, true); console.error(e); }
     }
 
     async function writePDF() {
@@ -861,7 +861,7 @@
     function uint8ToBinary(u8) { let s = ''; const CH = 0x8000; for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH)); return s; }
     function binaryToUint8(bin) { const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i) & 0xff; return u; }
     function rename(name, suffix) { const i = name.lastIndexOf('.'); return i < 0 ? name + suffix : name.slice(0, i) + suffix + name.slice(i); }
-    function triggerDownload(blob, filename) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); toast('Downloaded ' + filename); }
+    function triggerDownload(blob, filename) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); toast(t('Downloaded') + ' ' + filename); }
 
     // ---------- EXPORT ----------
     function exportMeta(kind) {
@@ -928,7 +928,7 @@
           <header class="ph"><div class="ph-l"><h1>${esc(opts.title)}</h1>${opts.subtitle ? `<p class="ph-date">${esc(opts.subtitle)}</p>` : ''}${opts.fmt ? `<div class="ph-fmt">${esc(opts.fmt)}</div>` : ''}</div>
             <div class="ph-r">${logo}${metaHtml}</div></header>
           ${opts.body}
-          <footer>Generated locally by Carino Systems — nothing left this device.</footer>
+          <footer>${esc(t('Generated locally by Carino Systems — nothing left this device.'))}</footer>
         </body></html>`;
 
         const ifr = document.createElement('iframe');
@@ -943,7 +943,7 @@
     }
 
     function printMeta() {
-        if (!current) { toast('Open a file first', true); return; }
+        if (!current) { toast(t('Open a file first'), true); return; }
         const d = current.det, f = current.file;
         const now = new Date();
         const p2 = n => String(n).padStart(2, '0');
@@ -954,20 +954,20 @@
                 const idx = g.rows.indexOf(r);
                 const staged = current.edits[stageKey(gi, idx)];
                 const val = staged != null ? staged : r.v;
-                const edited = staged != null ? '<span class="ed">edited</span>' : '';
-                return `<tr><th>${esc(r.k)}</th><td${val ? '' : ' class="empty"'}>${val ? esc(val) : '—'}${edited}</td></tr>`;
+                const edited = staged != null ? '<span class="ed">' + esc(t('edited')) + '</span>' : '';
+                return `<tr><th>${esc(t(r.k))}</th><td${val ? '' : ' class="empty"'}>${val ? esc(val) : '—'}${edited}</td></tr>`;
             }).join('');
             if (!rows) return '';
-            return `<section><h2>${esc(g.name)}</h2><table>${rows}</table></section>`;
+            return `<section><h2>${esc(t(g.name))}</h2><table>${rows}</table></section>`;
         }).join('');
 
         const advisory = d.advisory
             ? `<div class="adv adv-${esc(d.advisory.level)}">${d.advisory.html}</div>` : '';
 
         carinoBrandedPrint({
-            title: 'File Metadata Overview',
-            subtitle: `${f.name} · ${fmtSize(f.size)} · generated ${stamp}`,
-            fmt: `${d.icon} ${d.label} — ${d.editable ? 'editable' : 'read-only'}`,
+            title: t('File Metadata Overview'),
+            subtitle: `${f.name} · ${fmtSize(f.size)} · ${t('generated')} ${stamp}`,
+            fmt: `${d.icon} ${d.label} — ${t(d.editable ? 'editable' : 'read-only')}`,
             meta: 'Carino Metadata Editor',
             body: advisory + sections
         });
@@ -994,5 +994,6 @@
 </script>
 <script src="carino-navbar.js" data-app="Metadata" defer></script>
 <script src="carino-lang.js" defer></script>
+<script src="i18n.js" defer></script>
 </body>
 </html>
