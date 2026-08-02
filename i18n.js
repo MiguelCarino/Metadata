@@ -7,6 +7,10 @@
 
 const I18N = {
     es: {
+        'Late shift.': 'Turno nocturno.',
+        'Good morning.': 'Buenos días.',
+        'Good afternoon.': 'Buenas tardes.',
+        'Good evening.': 'Buenas noches.',
         // Chrome / static
         '＋ Open File': '＋ Abrir archivo',
         'Source File': 'Archivo de origen',
@@ -146,6 +150,10 @@ const I18N = {
         'valid until': 'válido hasta',
     },
     'pt-BR': {
+        'Late shift.': 'Turno da noite.',
+        'Good morning.': 'Bom dia.',
+        'Good afternoon.': 'Boa tarde.',
+        'Good evening.': 'Boa noite.',
         '＋ Open File': '＋ Abrir arquivo',
         'Source File': 'Arquivo de origem',
         'Drop a file': 'Solte um arquivo',
@@ -280,6 +288,10 @@ const I18N = {
         'valid until': 'válido até',
     },
     ru: {
+        'Late shift.': 'Ночная смена.',
+        'Good morning.': 'Доброе утро.',
+        'Good afternoon.': 'Добрый день.',
+        'Good evening.': 'Добрый вечер.',
         '＋ Open File': '＋ Открыть файл',
         'Source File': 'Исходный файл',
         'Drop a file': 'Перетащите файл',
@@ -414,6 +426,10 @@ const I18N = {
         'valid until': 'действителен до',
     },
     ja: {
+        'Late shift.': '夜勤お疲れさま。',
+        'Good morning.': 'おはようございます。',
+        'Good afternoon.': 'こんにちは。',
+        'Good evening.': 'こんばんは。',
         '＋ Open File': '＋ ファイルを開く',
         'Source File': '対象ファイル',
         'Drop a file': 'ファイルをドロップ',
