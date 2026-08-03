@@ -974,6 +974,26 @@
     }
     window.printMeta = printMeta;
 
+    /* ---------- HANDOFF (Carino Bridge) ----------
+       Another fleet tool can hand a file straight to this page instead of
+       making you find it again: it opens us at #carino-bridge and the File
+       arrives by postMessage, so nothing is uploaded, copied to a server or
+       re-encoded on the way. carino-bridge.js does the handshake.
+
+       A plain allowlist, and nothing else. An earlier version also waved
+       through anything on localhost so the pair could be run locally, which
+       meant every other local page could push a file into this tab as well —
+       and adding a local origin to the list below is just as easy. */
+    const HANDOFF_SENDERS = ['https://media.carino.systems'];
+
+    function initHandoff() {
+        if (!window.CarinoBridge) return;
+        CarinoBridge.receive({
+            allow: HANDOFF_SENDERS,          // anyone else: refused, silently
+            onFiles: files => { toast(t('File received.')); loadFile(files[0]); },
+        });
+    }
+
     // ---------- WIRING ----------
     function initLegend() {
         const kinds = ['JPEG','PNG','TIFF','HEIC','PDF','MP3','MP4','MKV','ZIP','DOCX','XLSX','TTF/OTF','WOFF','X.509 cert','PEM key','EXE (PE)','ELF','Mach-O','WASM','SQLite','DICOM→', '+ any binary'];
@@ -990,8 +1010,10 @@
         // whole-window drop (replaces the current file too)
         document.addEventListener('dragover', e => e.preventDefault());
         document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer && e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+        initHandoff();
     });
 </script>
+<script src="carino-bridge.js" defer></script>
 <script src="carino-navbar.js" data-app="Metadata" defer></script>
 <script src="carino-lang.js" defer></script>
 <script src="i18n.js" defer></script>
